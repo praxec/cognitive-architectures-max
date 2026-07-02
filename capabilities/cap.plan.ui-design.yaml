@@ -1,0 +1,58 @@
+# capabilities/cap.plan.ui-design.yaml
+#
+# Produce a grounded UI DESIGN from a feature brief — the design-output cap the
+# flow.ui.optimal `designing` stage needs. ITERATION-1 FINDING: routing the
+# design skills through cognitive/cap.plan.draft (whose contract is a plan-DAG)
+# made the agent emit a design narrative that failed the plan-DAG projection
+# (AGENT_OUTPUT_INCOMPLETE). This cap's contract IS a design object, so the
+# design skills and the output agree. Verb plan (Cognitive -> noop/skill-
+# surfacing, like cap.review.adversarial). Carries the full design-science set.
+workflows:
+  cap.plan.ui-design:
+    verb: plan
+    lifecycle: experimental
+    description: >
+      Produce a grounded UI design from a feature brief: the BFF view-model, the
+      atomic component tree, the HCI-grounded interaction design, the EARS spec +
+      NFRs, and the cut-list guards. Emits a single structured design object.
+    snippet:
+      inputs:
+        brief:   { type: string, required: true }
+        lexicon: { type: object, required: false }
+      outputs:
+        design: { type: object }
+    # ITERATION-3: trimmed to 4 skills (the validator warns >4 skill bodies are
+    # themselves payload that derails the agent's JSON output — the cause of the
+    # iteration-2 AGENT_OUTPUT_INCOMPLETE). SDUI + NFR are deferred to a later
+    # refinement stage; HCI + atomic + BFF + EARS are the load-bearing four.
+    skills:
+      - plan.hci.science-foundations
+      - implement.atomic.component-design
+      - plan.bff.pattern-api
+      - plan.spec.incose-ears
+    initialState: designing
+    states:
+      designing:
+        goal: >
+          From the brief, produce a grounded UI DESIGN as a SINGLE JSON OBJECT —
+          output JSON ONLY, no prose, no markdown fences. The object has keys:
+          view_model (the BFF screen-named fields, server-composed, honest
+          states), components (the atomic tree atoms/molecules/organisms/
+          templates/pages, data at the page), interaction (HCI-grounded:
+          hierarchy, primary action, state/feedback model — each tagged to a
+          JTBD step + an HCI law), spec (EARS clauses), and cut_list_guards.
+          Submit it as the `design` argument. The ENTIRE response must be that
+          JSON object.
+        transitions:
+          submit_design:
+            target: done
+            actor: agent
+            inputSchema:
+              type: object
+              required: [design]
+              properties:
+                design: { type: object }
+            executor: { kind: noop }
+            output:
+              design: "$.arguments.design"
+      done: { terminal: true }

@@ -1,0 +1,42 @@
+# capabilities/cap.run.ux-simulation.yaml
+#
+# Run a UX / product simulation through the PREVETI API and return its grounded
+# findings. The measurement engine for flow.ui.optimal's iterate-to-perfection
+# loop (build a UI -> simulate it against the intended-user archetype -> refine)
+# and a standalone power feature: praxec leveraging the Preveti API to run
+# product simulations. Verb `research` (deterministic script gate); binds the
+# `run.preveti.ux-study` script. Pairs with intentos (intent/JTBD modeling)
+# which also integrates with Preveti.
+workflows:
+  cap.run.ux-simulation:
+    verb: run
+    lifecycle: experimental
+    description: >
+      Run a grounded UX/product simulation via the Preveti API (key -> JWT ->
+      submit study -> poll -> findings); emit passed + the job's grounded
+      result. Use to MEASURE a built UI against the intended users' JTBD.
+    snippet:
+      inputs:
+        request_path: { type: string, required: true }   # path to the study-request JSON
+      outputs:
+        passed: { type: boolean }
+        status: { type: string }
+        result: { type: object }
+    initialState: ready
+    states:
+      ready:
+        goal: Submit the study to the Preveti API; poll; emit the grounded result.
+        transitions:
+          run:
+            target: done
+            actor: deterministic
+            executor:
+              kind: script
+              subject: run.preveti.ux-study
+              args:
+                - "$.workflow.input.request_path"
+            output:
+              passed: "$.output.json.passed"
+              status: "$.output.json.status"
+              result: "$.output.json.result"
+      done: { terminal: true }

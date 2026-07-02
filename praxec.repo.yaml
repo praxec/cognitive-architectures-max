@@ -1,0 +1,38 @@
+schema: praxec.repo/v1
+name: cognitive-architectures-max
+namespace: cognitive-max
+version: 0.0.1
+# Compatibility: requires the same praxec as cognitive-architectures
+# (capability/orchestrator composition model, SPEC §9). Layered ON TOP of the
+# base cognitive-architectures repo — operators load both.
+description: |
+  The MAX-tier UX factory layered on cognitive-architectures.
+
+  Where the base repo ships the SWE lifecycle (flow.add-feature, the cap.*
+  it depends on), this repo ships the capabilities/skills/workflows that turn
+  JTBD core-job research into SUPERIOR, GROUNDED user experiences — built and
+  verified through praxec, dogfooding praxec and its tools.
+
+  Leverages:
+    - intentos  (intent / JTBD modeling)         — connections/intentos.yaml
+    - structureos (structural hygiene)           — base repo connection
+    - elicitation (falsification-based discovery) — base repo connection
+
+  Operators reference BOTH repos from their gateway config:
+
+      repos:
+        - path: /path/to/cognitive-architectures      # base SWE pack
+        - path: /path/to/cognitive-architectures-max   # this — UX factory
+
+  Every loaded definitionId is namespace-prefixed `cognitive-max/<id>`
+  (e.g. `cognitive-max/flow.add-ui-feature`, `cognitive-max/cap.verify.ui-green`).
+
+# Mirrors the base repo's layout (the engine field for orchestrators is `flows`;
+# the directory stays `orchestrators/`). Connections stay outside the manifest —
+# reference definitions operators copy into their gateway config.
+layout:
+  capabilities: capabilities
+  flows:        orchestrators
+  skills:       skills
+  scripts:      scripts-library
+  connections:  ._unused_connections

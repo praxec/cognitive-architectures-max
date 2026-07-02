@@ -1,0 +1,63 @@
+# skills/plan.bff.pattern-api.yaml
+#
+# LLM-guidance fragment (verb `plan`) for designing a Backend-For-Frontend
+# view-model API: the human projection consumed by the UI, distinct from the
+# machine API consumed by integrators. Encodes ADR-0007 (the host product's
+# law). Injected into the design state of the JTBD->UX workflow and into
+# `flow.add-ui-feature` planning. Pairs with `plan.sdui.server-driven-ui`.
+skills:
+  plan.bff.pattern-api:
+    verb: plan
+    lifecycle: stable
+    source: cognitive-architectures-max
+    body: |
+      # Backend-For-Frontend (BFF) view-model API
+
+      One core capability, projected TWICE — never crossed:
+      - **BFF view model → the human (the UI).** Shaped for ONE screen:
+        server-composed, denormalized, joined, ranked, and NAMED in the user's
+        language. The proto/DTO *is* the view model. The frontend renders it
+        with ZERO logic; the service impl is the Anti-Corruption Layer (ACL)
+        where all composition happens.
+      - **Machine API → integrators (REST/gRPC for code).** The same core
+        features projected for programmatic consumption: clean, typed,
+        predictable, paginatable. NOT the same shape as the human view model,
+        and the UI must NEVER consume it.
+
+      A view model optimized for a human is a poor machine API, and vice-versa.
+      Keep both; keep them separate.
+
+      ## Designing a view model (the BFF projection)
+      1. **Start from the screen's job, not the tables.** Ask: what does the
+         user need to SEE and DECIDE here (their JTBD core job)? The view model
+         carries exactly that — pre-computed, pre-joined, pre-ranked.
+      2. **Denormalize for the screen.** If the screen shows a stat + its
+         provenance + a leaning, the view model carries all three together;
+         the client does no joining.
+      3. **Name fields in the user's language** (`convergence_state`,
+         `readiness_rationale`, `gaps`), not in storage terms.
+      4. **Compose server-side (the ACL).** Every join, derivation,
+         aggregation, ranking, and absence/partial flag is computed in the
+         service impl. The component receives a "fat" object and renders it.
+      5. **Honest projections only.** Surface partial/absent/low-confidence
+         states as first-class fields — never fabricate or omit to make the UI
+         look complete.
+      6. **Exclude internals.** Lease tokens, lock timestamps, cost internals,
+         and other machine-only fields never enter the human view model.
+      7. **One RPC per screen** where practical (the screen's whole state in one
+         round trip); poll it for liveness when the underlying work is async.
+
+      ## Anti-patterns to reject
+      - The UI calling the machine REST API "to reuse it" — wrong projection,
+        forces client-side composition, couples the UI to storage shape.
+      - A generic `getEntity` the client then joins/filters/derives — that
+        derivation belongs in the ACL.
+      - Leaking normalized capability models raw to the client.
+      - View models that grow to serve many screens — split per screen.
+
+      ## Output
+      Produce: the view-model message (fields + types, named for the screen),
+      the single RPC, the composition plan (which sources the ACL reads and how
+      each field is derived), and the honest-state fields (partial/absent/
+      confidence). Hand this to the build flow; the page binds it, atoms render
+      it (see `implement.atomic.component-design`).

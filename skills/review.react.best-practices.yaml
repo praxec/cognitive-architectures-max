@@ -1,0 +1,74 @@
+# skills/review.react.best-practices.yaml
+#
+# LLM-guidance fragment (verb `review`) injected into a React review/implement
+# state. The React-specific complement to the base repo's general
+# `review.code.adversarial`. Encodes the antipattern catalog found in novice
+# React codebases — led by the headline misuse the operator named: `useEffect`
+# for state synchronization that should be COMPOSED/DERIVED state.
+#
+# Used by `cognitive-max/cap.review.react-antipatterns` (the scan) and injectable
+# into the implement state so code is authored right the first time. Reinforces
+# the host product's BFF/view-model law (ADR-0007): a component RENDERS a
+# server-composed view model and holds ZERO business logic.
+skills:
+  review.react.best-practices:
+    verb: review
+    lifecycle: stable
+    source: cognitive-architectures-max
+    body: |
+      # React best practices — antipattern review
+
+      You are reviewing (or authoring) React/TypeScript. Find and fix the
+      antipatterns below. For each finding emit: file:line, the antipattern
+      name, why it's wrong, and the concrete fix. Severity: CRITICAL (bug or
+      data race), IMPORTANT (wrong model, will rot), MINOR (style/perf).
+
+      ## 1. useEffect misuse — the #1 source of novice React bugs
+      An Effect is for **synchronizing with an external system** (network,
+      DOM, a non-React store, a subscription). It is NOT a place to compute
+      values or react to user events. Flag every Effect and ask "what external
+      system does this synchronize with?" — if the answer is "none," it's
+      probably an antipattern:
+      - **State-sync Effect → derive during render.** `useEffect(() => setFullName(first + ' ' + last), [first,last])` is wrong — `const fullName = first + ' ' + last` during render. No effect, no extra state, no extra render. (The headline antipattern.)
+      - **Effect to transform/filter data for display → compute in render or `useMemo`** (memo only if provably expensive).
+      - **Effect that runs in response to a user event → move the logic into the event handler.** "Send the form, then show a toast" belongs in `onSubmit`, not an Effect watching a flag.
+      - **Effect to reset state when a prop changes → use a `key`** (remount) or derive; don't `setState` in an Effect on prop change.
+      - **Effect chains** (Effect A setStates → triggers Effect B): collapse into one calculation or one event handler. Cascading effects = extra renders + ordering bugs.
+      - **Fetching in an Effect without a race guard → data races.** If you must fetch in an Effect, capture an `ignore`/`AbortController` and clean up; preferably use a data library (TanStack Query) or the framework's loader/action. Unguarded `fetch().then(setState)` races on fast prop changes (stale response wins).
+      - **Subscribing to an external store via Effect+setState → `useSyncExternalStore`.**
+      - **Missing/over-broad dependency arrays**: lying to the linter (`// eslint-disable`), `[]` when the effect reads props/state, or stuffing unstable values (inline objects/functions) into deps so it fires every render.
+
+      ## 2. State modeling
+      - **Derived state stored in state** (e.g. `selectedItem` duplicated from `items[selectedId]`): compute it; a single source of truth.
+      - **Redundant/contradictory state** that could be one variable or a reducer.
+      - **State that should be a ref** (values that don't affect render: timers, previous-value, instance handles) → `useRef`, not `useState`.
+      - **Uncontrolled where you need controlled** (and vice-versa) — pick one; don't read DOM values you also track in state.
+      - **State colocation**: lift state only as high as the lowest common owner; don't hoist everything to a top-level god-component, and don't bury shared state too low.
+
+      ## 3. Rendering & reconciliation
+      - **Index-as-`key`** on reorderable/dynamic lists → stable domain ids. Index keys corrupt state on insert/reorder.
+      - **`setState` during render** / **mutating state or props directly** (`state.push(x)`) → immutable update.
+      - **Inline object/array/function props** (`style={{...}}`, `onClick={() => ...}`) handed to memoized children defeat memo and churn renders → hoist/`useCallback`/`useMemo` where it matters.
+      - **Premature memoization**: `useMemo`/`useCallback`/`React.memo` sprinkled everywhere adds cost + bugs. Memoize only measured-expensive work or to keep a stable reference a memoized child depends on.
+
+      ## 4. Component structure (atomic-design aware)
+      - **Business/data logic inside components** → extract to hooks/services. The component should read like a template over its inputs. (Reinforces the BFF/view-model law: render the server-composed view model; no joins/derivation/composition in the component.)
+      - **God components** (300+ lines, many responsibilities) → decompose along atomic-design lines: atoms (Button, Badge, Stat) → molecules (a labeled field, a stat row) → organisms (a panel) → templates → pages. Each unit one responsibility, testable in isolation.
+      - **Prop drilling** 3+ levels → composition (`children`/slots) first, then context for genuinely cross-cutting state (sparingly — context re-renders all consumers on change; don't put high-frequency state in it).
+      - **Fetching/effects in leaf/atom components** → push data to the page/loader; keep atoms pure and presentational.
+
+      ## 5. Hooks rules & hazards
+      - **Conditional hooks / hooks in loops or after an early return** → violates the rules of hooks.
+      - **Custom hooks that hide a fetch with no loading/error/race handling.**
+      - **`useEffect` where the framework offers a loader/action/Suspense boundary** (e.g. server components / route loaders) → prefer the framework primitive.
+
+      ## 6. TypeScript hygiene
+      - `any` / unsound casts at boundaries (esp. on the generated proto/view-model types — consume them as typed, don't `as any`).
+      - Untyped event handlers, missing discriminated unions for variant state.
+
+      ## Output discipline
+      Lead with CRITICAL findings (races, rules-of-hooks violations, direct
+      mutation). Give the fix, not just the complaint. If you find an Effect,
+      justify why it must be an Effect or replace it. Zero findings is a valid
+      result only after you've checked every Effect and every piece of state
+      against §1–§2.

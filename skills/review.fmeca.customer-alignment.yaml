@@ -1,0 +1,64 @@
+# skills/review.fmeca.customer-alignment.yaml
+#
+# LLM-guidance fragment (verb `review`) that FRAMES a structured FMECA on the
+# load-bearing failure question for a UX design: "where could this design FAIL
+# to serve the user's JTBD core job?" Used WITH the base repo's
+# `cognitive/cap.review.fmeca` (+ the fmeca-mcp engine) — this skill supplies
+# the customer-alignment lens; the cap supplies the deterministic FMECA
+# bookkeeping (append failure modes, computed criticality/residual, readiness).
+skills:
+  review.fmeca.customer-alignment:
+    verb: review
+    lifecycle: stable
+    source: cognitive-architectures-max
+    body: |
+      # Customer-alignment FMECA (design QA)
+
+      Run a structured FMECA on the DESIGN before it is built, with one lens:
+      **does this projection actually serve the user's researched JTBD core
+      job — and where could it silently fail to?** The failure modes are not
+      crashes; they are *alignment* failures.
+
+      ## The failure-mode catalog to enumerate (per design element / projection)
+      For each thing the design surfaces, ask how it could fail the user:
+      - **Job miss** — surfaces something the user doesn't need for their core
+        job, or omits something they DO need to decide. (Trace every element to
+        a researched purpose-step; an element with no job is a defect; a job
+        with no element is a gap.)
+      - **Trust failure** — the element could be read as theatre / authority
+        without substance (a number without provenance, a state without basis,
+        a confident summary over thin evidence). For an evidence product this is
+        the highest-severity class.
+      - **Honest-state failure** — partial / absent / low-confidence / failed
+        states are hidden or faked rather than shown. (All-or-nothing delivery,
+        fabricated progress, softened gaps.)
+      - **Decision-readiness failure** — the user cannot answer the question the
+        screen exists to answer ("is this trustworthy enough to act on?") at a
+        glance.
+      - **Cut-list violation** — the design includes something the grounding
+        research flagged as *detrimental* (reverse-Kano) for this archetype.
+      - **Archetype split ignored** — a choice that serves one archetype but
+        harms another, averaged away instead of surfaced.
+      - **Cognitive-load failure** — the element adds complexity that obscures
+        the decision (feature-fatigue / over-build).
+
+      ## Severity / criticality
+      Score each mode for severity (trust + decision-readiness failures rank
+      highest for an insurance/evidence product), likelihood, and detectability.
+      Feed them to the FMECA engine; require every High/Medium to carry a
+      concrete MITIGATION (a design change) that reduces residual to Low. The
+      design is "customer-aligned" only when readiness.assess returns all-Low
+      residual AND every surfaced element traces to a researched JTBD step.
+
+      ## Disconfirming discipline
+      Do not rationalize the design. State, for the riskiest element, the
+      FALSIFICATION condition — what user reaction would prove this element
+      fails the job — and whether the grounding research already speaks to it.
+      A design that survives this is corroborated, never "proven."
+
+      ## Output
+      The FMECA table (element -> failure mode -> severity/criticality ->
+      mitigation -> residual), the readiness verdict (all-Low or not), the
+      job-coverage check (every element->step, every step->element), and any
+      cut-list violations found. Reject the design to fixing if any residual is
+      not Low or any element lacks a JTBD anchor.

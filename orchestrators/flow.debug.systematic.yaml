@@ -1,0 +1,220 @@
+# orchestrators/flow.debug.systematic.yaml
+#
+# THE optimal debugging workflow — structured to beat LLM-alone debugging.
+# Extends the base repo's flow.bugfix-from-error-log with the load-bearing
+# disciplines it skips: an explicit GROUNDED ROOT-CAUSE-ANALYSIS gate (the
+# scientific-method falsification cycle + evidence-grounded Five Whys) that
+# BLOCKS the fix until the root cause is VERIFIED. An LLM alone guesses a fix
+# from the error text; this flow forces reproduce -> observe -> falsifiable
+# hypothesis -> disprove-while-exploring -> verified root cause -> fix -> the
+# fix actually fixes the repro + a regression test.
+#
+# Composes base CA diagnose/implement/verify/review caps + the cognitive-max
+# cap.diagnose.root-cause (which surfaces diagnose.debug.systematic). Same
+# state-shape + cross-repo caveats as flow.add-ui-feature.
+workflows:
+  flow.debug.systematic:
+    description: |
+      Systematic, root-cause-gated bugfix: parse -> reproduce -> localize ->
+      GROUNDED root-cause analysis (verified gate) -> scope-bounded fix ->
+      regression verify -> adversarial review -> PR. No fix is attempted until
+      the root cause is evidence-grounded and survived falsification.
+    inputs:
+      error_log: { type: string, required: true }
+      base_ref:  { type: string, default: main }
+    initialState: parsing
+    states:
+      parsing:
+        transitions:
+          parse:
+            target: reproducing
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.diagnose.parse-error
+              use:
+                inputs:
+                  error_log: "$.context.error_log"
+                outputs:
+                  "$.context.parsed": parsed
+
+      reproducing:
+        transitions:
+          repro:
+            target: localizing
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.diagnose.reproduce
+              use:
+                inputs:
+                  parsed: "$.context.parsed"
+                outputs:
+                  "$.context.repro_steps": repro_steps
+
+      localizing:
+        transitions:
+          localize:
+            target: root_cause_analysis
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.diagnose.localize
+              use:
+                inputs:
+                  parsed:      "$.context.parsed"
+                  repro_steps: "$.context.repro_steps"
+                outputs:
+                  "$.context.defect_location": defect_location
+
+      root_cause_analysis:
+        # The load-bearing addition: grounded, falsification-driven RCA. The
+        # cap surfaces diagnose.debug.systematic and emits verified=true only
+        # when the cause is evidence-grounded and survived every disproof.
+        transitions:
+          analyze:
+            target: rca_gate
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive-max/cap.diagnose.root-cause
+              use:
+                inputs:
+                  parsed:          "$.context.parsed"
+                  repro_steps:     "$.context.repro_steps"
+                  defect_location: "$.context.defect_location"
+                outputs:
+                  "$.context.root_cause":   root_cause
+                  "$.context.rca_verified": verified
+                  "$.context.audit_trail":  audit_trail
+
+      rca_gate:
+        # Enforce "no fix until the root cause is verified" — the discipline
+        # that separates this from guess-and-patch.
+        transitions:
+          advance:
+            target: planning
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.rca_verified == true"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.rca_verified == false"
+
+      planning:
+        transitions:
+          plan:
+            target: implementing
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.plan.fix
+              use:
+                inputs:
+                  defect_location: "$.context.defect_location"
+                  repro_steps:     "$.context.repro_steps"
+                outputs:
+                  "$.context.fix_plan": plan
+
+      implementing:
+        transitions:
+          edit:
+            target: verifying
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.implement.scope-bounded
+              use:
+                inputs:
+                  plan:        "$.context.fix_plan"
+                  scope_paths: "$.context.fix_plan"
+                outputs:
+                  "$.context.edit_result": result
+
+      verifying:
+        transitions:
+          verify:
+            target: verified
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.verify.regression-tests
+              use:
+                inputs:
+                  defect_location: "$.context.defect_location"
+                  repro_steps:     "$.context.repro_steps"
+                outputs:
+                  "$.context.regression_ok":          ok
+                  "$.context.regression_tests_added": tests_added
+
+      verified:
+        transitions:
+          advance:
+            target: reviewing
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.regression_ok == true"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.regression_ok == false"
+
+      reviewing:
+        transitions:
+          review:
+            target: reviewed
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.review.adversarial
+              use:
+                inputs:
+                  diff_against: "$.context.base_ref"
+                outputs:
+                  "$.context.review_verdict":  verdict
+                  "$.context.review_findings": findings
+
+      reviewed:
+        transitions:
+          advance:
+            target: opening_pr
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.review_verdict == 'approved'"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.review_verdict == 'rejected'"
+
+      opening_pr:
+        transitions:
+          open:
+            target: done
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.coordinate.pr-open
+              use:
+                inputs:
+                  title: "$.context.error_log"
+                  body:  "$.context.error_log"
+                  base:  "$.context.base_ref"
+                outputs:
+                  "$.context.pr_url":    url
+                  "$.context.pr_number": pr_number
+
+      done:
+        terminal: true
+
+      failed:
+        terminal: true

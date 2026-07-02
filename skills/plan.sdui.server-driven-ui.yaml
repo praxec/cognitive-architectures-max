@@ -1,0 +1,57 @@
+# skills/plan.sdui.server-driven-ui.yaml
+#
+# LLM-guidance fragment (verb `plan`) for Server-Driven UI: when (and when NOT)
+# the server should describe the UI itself, and how to do it safely with a
+# client component registry. Extends `plan.bff.pattern-api` along the data->layout
+# spectrum. Injected into the design state when a screen's STRUCTURE (not just
+# its data) needs to vary server-side.
+skills:
+  plan.sdui.server-driven-ui:
+    verb: plan
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      # Server-Driven UI (SDUI)
+
+      A spectrum of how much the server controls, from data only to layout:
+      1. **Data-driven view model** (the BFF default): server sends DATA, client
+         owns layout/components. Start here.
+      2. **Content-driven**: server sends data + ordering/visibility/section
+         flags; client owns the component vocabulary.
+      3. **Server-driven UI**: server sends a TREE of component-type + props
+         nodes; the client renders them via a **component registry** (type ->
+         React component). The server composes the screen's structure.
+
+      Each step up the spectrum buys server-side control of the experience
+      (change the UI without shipping a client release; A/B layouts; per-
+      archetype/per-cohort screens) at the cost of client flexibility, type
+      safety, and debuggability. **Climb only as far as a real need pulls you.**
+
+      ## When SDUI earns its keep
+      - The screen's STRUCTURE legitimately varies by server state, segment,
+        experiment, or a workflow's current step (e.g. a study's stage drives
+        which panels appear) — and you want to change it without a deploy.
+      - Many surfaces share one server-composed layout language.
+      Otherwise: stay at the data-driven view model. SDUI for a static screen is
+      over-engineering and erodes type safety for nothing.
+
+      ## Doing SDUI safely
+      - **Client component registry**: a closed, versioned map `type -> component`.
+        Unknown `type` → render an honest fallback, never crash. The server may
+        only reference registered types.
+      - **Typed node contract**: discriminated union on `type`; each node's
+        props validated at the boundary. No `any`; reject malformed nodes loudly.
+      - **The server still composes a VIEW MODEL, not raw storage** — SDUI is the
+        BFF projection extended to layout; all the BFF rules (honest states,
+        ACL composition, screen-named fields) still hold.
+      - **Versioning**: version the schema + the registry; the client tolerates
+        unknown future types (forward-compat fallback).
+      - **Guardrails**: the server describes STRUCTURE + DATA, never behavior/
+        logic; interactivity binds to client-side handlers by id, not server-
+        sent code. Keep determinism + the honest-state + cut-list guards.
+
+      ## Output
+      If staying data-driven: say so and stop (recommend the BFF view model).
+      If SDUI: produce the node schema (the discriminated union), the registry
+      (type -> component, with the unknown-type fallback), the versioning
+      strategy, and which screen states drive structural variation.

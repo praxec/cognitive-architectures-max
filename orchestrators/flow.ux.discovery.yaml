@@ -1,0 +1,120 @@
+# orchestrators/flow.ux.discovery.yaml
+#
+# The DISCOVERY FRONT-STAGE of the UX factory (headless / auto-drive path).
+#
+# Turns a vague brief into an aligned, falsification-survived spec, gated on a
+# DETERMINISTIC readiness assessment from elicitation (not an agent's
+# guidance-only "ready" flag). The exported spec becomes the `feature_brief`
+# input to cognitive-max/flow.ui.optimal — so the full factory loop is:
+#
+#   flow.ux.discovery (ELICIT -> aligned spec)
+#     -> flow.ui.optimal (design -> FMECA -> signoff -> build -> verify
+#                         -> review -> PR)
+#     -> cap.run.ux-simulation (MEASURE)
+#     -> REFINE (findings -> new claims/evidence -> re-elicit)
+#
+# This is the headless twin of the Claude-driven `ux-discovery-front-stage`
+# skill (path a): there Claude itself drives the elicitation tools as the
+# operator; here the gateway drives them through the agent leaf + the
+# deterministic readiness gate.
+#
+# Composition (NO rebuild — reuses the base SWE pack's elicitation caps):
+#   - cognitive/cap.plan.elicit-spec    (agent: interview -> structured spec)
+#   - cognitive/cap.verify.spec-readiness (deterministic: kind:mcp ->
+#                                          elicitation readiness.assess via
+#                                          the gateway `elicitation`
+#                                          connection)
+#
+# Same cross-repo-reference caveat as flow.ui.optimal: base caps = cognitive/*,
+# local = cognitive-max/*. Gateway must load BOTH repos + the elicitation
+# connection (already wired). Orchestrate-drivable: declares `outcomes` (with a
+# `check`) + a terminal marked `outcome: success`.
+#
+# v1 SCOPE NOTE: the deterministic gate reads the elicitation session named
+# by `session_id`. For the gate to pass, that session must have been populated
+# with claims/evidence (the falsification ledger). The agent elicit leaf is
+# guidance-driven today; making it drive session.open/append/spec.export
+# against `session_id` through the gateway connection is the runtime-dogfood
+# refinement (tracked in docs/spec-elicit-front-stage.md). Until then the gate
+# is fail-closed: an unpopulated session reports not-ready, which is correct.
+
+workflows:
+  flow.ux.discovery:
+    description: >
+      Discovery front-stage: interview a vague brief into an aligned spec, then
+      gate planning on elicitation's DETERMINISTIC readiness (coverage
+      withstood, no high contradiction, acceptance met). The exported spec is
+      the feature_brief for flow.ui.optimal. Headless twin of the Claude-driven
+      ux-discovery-front-stage skill.
+    inputs:
+      brief:      { type: string, required: true }
+      session_id: { type: string, required: true }
+    # ORCHESTRATE-DRIVE: outcome + `outcome: success` terminal so the driver
+    # has something to steer toward (see flow.ui.optimal / ADR-0009).
+    outcomes:
+      - id: spec_ready
+        statement: An aligned spec survived falsification and is plan-ready.
+        check: "$.context.ready == true"
+    initialState: eliciting
+    states:
+      eliciting:
+        # Agent interview -> a structured spec. The spec becomes feature_brief.
+        # (Agent leaf invoked as a deterministic nested workflow, exactly as
+        # flow.ui.optimal nests cap.plan.ui-design.)
+        transitions:
+          elicit:
+            target: readiness_gate
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.plan.elicit-spec
+              use:
+                inputs:
+                  brief: "$.context.brief"
+                outputs:
+                  "$.context.feature_brief":  spec
+                  "$.context.open_questions": open_questions
+
+      readiness_gate:
+        # The DETERMINISTIC gate: a real elicitation call (readiness.assess)
+        # via the gateway `elicitation` connection. Independent of the
+        # agent's own "ready" claim — this is the falsification gate.
+        transitions:
+          assess:
+            target: gate
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.verify.spec-readiness
+              use:
+                inputs:
+                  session_id: "$.context.session_id"
+                outputs:
+                  "$.context.ready":    ready
+                  "$.context.blockers": blockers
+
+      gate:
+        transitions:
+          ready:
+            target: aligned
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.ready == true"
+          blocked:
+            target: not_ready
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.ready != true"
+
+      aligned:
+        # The aligned spec ($.context.feature_brief) is plan-ready: hand it to
+        # cognitive-max/flow.ui.optimal as `feature_brief`.
+        terminal: true
+        outcome: success
+
+      not_ready:
+        # Fail-closed: spec did not survive falsification. Read $.context.blockers
+        # and keep interviewing (re-run with more claims/evidence).
+        terminal: true

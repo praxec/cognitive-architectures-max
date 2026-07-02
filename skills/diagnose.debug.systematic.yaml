@@ -1,0 +1,108 @@
+# skills/diagnose.debug.systematic.yaml
+#
+# The master debugging methodology — codifies the best-known debugging science
+# into one discipline, structured to beat LLM-alone debugging. An LLM alone
+# GUESSES a plausible fix from the error text; this forces the disciplines it
+# skips: reproduce, OBSERVE the real state, form a FALSIFIABLE hypothesis,
+# change ONE thing, confirm root cause, verify the fix actually fixes it.
+# Injected into the states of flow.debug.systematic. Composes the base repo's
+# diagnose.error-trace.parse / diagnose.reproduction / diagnose.codebase.search.
+skills:
+  diagnose.debug.systematic:
+    verb: diagnose
+    lifecycle: stable
+    source: cognitive-architectures-max
+    body: |
+      # Systematic debugging — observe, don't guess
+
+      The single biggest debugging failure (especially for an LLM) is
+      GUESSING: pattern-matching the error to a plausible fix and editing
+      before understanding. Refuse to. Follow the loop; each phase has an exit
+      condition you must meet before advancing.
+
+      ## The cardinal rules (Agans' "Debugging", distilled)
+      1. **Understand the system** — know what the code is SUPPOSED to do.
+      2. **Make it fail** — get a reliable, on-demand reproduction first.
+      3. **Quit thinking and LOOK** — observe the actual state (logs, values,
+         the real source) before theorizing. Most wrong fixes come from
+         theorizing past unread evidence.
+      4. **Divide and conquer** — binary-search the fault's location (the
+         half-split / wolf-fence): is it before or after this point?
+      5. **Change ONE thing at a time** — and measure. Never shotgun multiple
+         edits; you won't know which mattered, and you'll add bugs.
+      6. **Keep an audit trail** — record every hypothesis, experiment, and
+         result. The trail prevents re-testing the same thing and reveals
+         patterns.
+      7. **Check the obvious / your assumptions** — the "plug": versions,
+         config, the input you THINK you're passing, the build you're running.
+      8. **Get a fresh view** — re-read the actual source of truth (spec, the
+         engine code) instead of your mental model of it.
+      9. **If you didn't fix it, it ain't fixed** — a symptom that vanishes
+         without an understood cause will return. Confirm WHY the fix works.
+
+      ## The scientific-method loop (the engine of the flow)
+      Repeat until the root cause is confirmed:
+      - **Reproduce** — a minimal, reliable repro (the five-field discipline:
+        steps, expected, actual, environment, frequency). No repro → no
+        debugging; everything downstream is guessing.
+      - **Observe** — instrument and READ the real state at the failure: the
+        actual values, the actual code path, the actual data. Add logging/
+        assertions to SEE what's happening if it's opaque. Distinguish what you
+        KNOW (observed) from what you ASSUME.
+      - **Hypothesize (FALSIFIABLE)** — state one specific, testable cause that
+        PREDICTS an observation: "if the cause is X, then I will see Y." A
+        hypothesis you can't falsify is useless. Prefer the hypothesis that, if
+        wrong, is cheapest to disprove.
+      - **Experiment** — run the ONE test/change that would FALSIFY the
+        hypothesis. Try to DISPROVE it, not confirm it (confirmation bias is
+        how wrong root causes survive). Record the result in the audit trail.
+      - **Isolate (delta debugging)** — binary-search the change set, the
+        input, or the state: bisect commits (git bisect), shrink the input to
+        the minimal failing case, or disable half the system. Each step halves
+        the search space and is itself a falsification experiment.
+
+      ## Root cause analysis — grounded, reviewed, valid
+      Root cause analysis is where debugging most often goes wrong: a
+      plausible-sounding causal chain that was never verified. Enforce rigor.
+      - **Five Whys — but every link GROUNDED.** Ask "why" down the causal
+        chain until you reach a cause fixable at its level (not the surface
+        symptom). For EACH "why" link, you must cite the OBSERVED EVIDENCE (the
+        code line, the logged value, the experiment result) that establishes
+        that link. A link backed only by "it would make sense that…" is a
+        guess — mark it UNVERIFIED and go observe it before continuing. An
+        ungrounded chain is worse than none: it ends debugging at the wrong place.
+      - **Review the chain for validity.** Re-read the chain adversarially:
+        does each link actually CAUSE the next (not merely correlate / co-occur)?
+        Could the parent effect happen WITHOUT this cause (if so, it's not THE
+        cause)? Is there a competing cause you haven't ruled out? Treat the RCA
+        like a small proof — every step must hold, or the conclusion is unsound.
+      - **Falsify while you explore the codebase.** Exploring the source is not
+        confirmation-gathering; it is hypothesis FALSIFICATION. For the current
+        hypothesis, go read the exact code/state that would DISPROVE it. Cycle:
+        hypothesize a root cause → predict what the code/state must show →
+        read it → if it contradicts, the hypothesis is dead (record it, form
+        the next) → if it survives, tighten and try the next disproof. The root
+        cause is the hypothesis that SURVIVES every attempt to disprove it AND
+        whose every causal link is grounded in read evidence — never the first
+        plausible story.
+      - **State the root cause in one sentence** with the evidence chain
+        (link → observed evidence) before writing any fix. Patching a symptom
+        (swallow the error, add a retry, special-case the input) without this
+        leaves the cause to resurface.
+
+      ## Fix + verify (the close-out discipline)
+      - **Minimal, root-cause fix** — change the cause, scope-bounded; don't
+        refactor opportunistically mid-fix.
+      - **Verify against the repro** — the exact reproduction now passes. "It
+        builds" is not "it's fixed."
+      - **Regression test FIRST or alongside** — encode the bug as a failing
+        test, then make it pass (red→green). The test is the proof the bug is
+        gone and the guard that it stays gone.
+      - **Confirm no new breakage** — the surrounding suite stays green.
+      - **Explain WHY** the fix resolves the root cause in the audit trail. If
+        you can't explain why it works, you haven't fixed it.
+
+      ## Output
+      The audit trail (hypotheses + experiments + results), the confirmed root
+      cause with its observed evidence, the minimal fix, the regression test
+      that fails-before/passes-after, and the repro re-run showing green.

@@ -1,0 +1,59 @@
+# skills/implement.storybook.author.yaml
+#
+# LLM-guidance fragment (verb `implement`) for authoring Storybook stories
+# alongside atomic components — story-driven development as the isolation +
+# documentation + visual-regression surface. Injected into the implement state
+# of UI work. Pairs with `implement.atomic.component-design` (one story per level) and
+# `review.react.best-practices`.
+skills:
+  implement.storybook.author:
+    verb: implement
+    lifecycle: stable
+    source: cognitive-architectures-max
+    body: |
+      # Authoring Storybook stories
+
+      Every component gets a co-located `*.stories.tsx`. The story is where the
+      component is built and reviewed in ISOLATION — no app, no backend, no
+      real data — which is exactly what atomic design needs (atoms/molecules
+      can't fetch, so they're trivially storyable).
+
+      ## Story shape (CSF3 — Component Story Format 3)
+      - A default export `meta`: `{ title, component, args, argTypes, tags:
+        ['autodocs'] }`. `title` follows the atomic hierarchy
+        (`Atoms/Button`, `Molecules/StatRow`, `Organisms/GapPanel`).
+      - Named exports = stories, each `{ args }`. One story PER MEANINGFUL
+        VARIANT/STATE — not just the happy path:
+        - every variant/size of an atom;
+        - the honest states an organism must show: **Loading, Empty, Error,
+          Partial** (mirrors the design-system honest-state rule — never a fake
+          state);
+        - edge content (long text, zero items, max items).
+      - Use **`args` + `argTypes` controls** so a reviewer can manipulate props
+        live; derive variants from args, don't hard-fork components.
+
+      ## Interaction + a11y + visual regression
+      - **Interaction tests** (`play` function with `@storybook/test`): drive
+        the component (click, type, assert) for stateful organisms — a story
+        that's also a test.
+      - **a11y addon**: every story passes the accessibility checks (roles,
+        labels, contrast, focus order). Numbers/states must have non-color
+        cues, not color alone.
+      - **Visual regression**: stories are the snapshot surface (Chromatic /
+        snapshot test). A diff in a story is a reviewable visual change.
+
+      ## Discipline
+      - Story-FIRST for new atoms/molecules: write the story, build the
+        component against it, then wire it into the page. The component is
+        "done" when its stories cover every variant + honest state and pass
+        interaction + a11y.
+      - No story may depend on a running backend or global app state — inject
+        everything via args/decorators (a story that needs the server is an
+        atomic-design violation: the data belongs at the page).
+      - Keep stories deterministic (fixed data, no `Date.now()`/random) so
+        visual regression is stable.
+
+      ## Output
+      For each component: the `meta` (atomic-titled) + a story per variant and
+      per honest state (Loading/Empty/Error/Partial), interaction `play` for
+      stateful ones, and confirmation the a11y checks pass.

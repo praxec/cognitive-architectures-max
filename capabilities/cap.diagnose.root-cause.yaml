@@ -1,0 +1,60 @@
+# capabilities/cap.diagnose.root-cause.yaml
+#
+# Grounded root-cause analysis — the discipline base CA's bugfix flow skips
+# (it goes localize -> plan-fix directly). Surfaces the diagnose.debug.systematic
+# methodology (kind: noop, agent-driven): form falsifiable hypotheses, explore
+# the code to DISPROVE each, ground every Five-Whys link in observed evidence,
+# and confirm the cause that survives. Emits the root cause, the audit trail,
+# and whether it is VERIFIED (the gate flow.debug.systematic blocks on). Verb
+# diagnose (Cognitive -> noop/skill-surfacing, like cap.review.adversarial).
+workflows:
+  cap.diagnose.root-cause:
+    verb: diagnose
+    lifecycle: experimental
+    description: >
+      Grounded, falsification-driven root-cause analysis over the codebase:
+      emit the confirmed root cause, the hypothesis/experiment audit trail, the
+      evidence chain, and verified=true ONLY if every causal link is grounded in
+      read evidence and the cause survived every disproof attempt.
+    snippet:
+      inputs:
+        parsed:          { type: object, required: true }
+        repro_steps:     { type: object, required: false }
+        defect_location: { type: array,  required: false }
+      outputs:
+        root_cause:  { type: string }
+        verified:    { type: boolean }
+        audit_trail: { type: array }
+        evidence:    { type: array }
+    skills: [diagnose.debug.systematic]
+    initialState: analyzing
+    states:
+      analyzing:
+        goal: >
+          Form falsifiable hypotheses for the root cause; explore the code to
+          DISPROVE each (read the exact source/state that would contradict it),
+          not to confirm. Build the Five-Whys chain with each link CITING the
+          observed evidence that establishes it. Set verified=true ONLY when
+          every link is evidence-grounded, the chain is causally valid (cause,
+          not mere correlation), and the surviving cause withstood every
+          disproof. Emit root_cause + audit_trail (hypotheses/experiments/
+          results) + evidence.
+        transitions:
+          submit_rca:
+            target: done
+            actor: agent
+            inputSchema:
+              type: object
+              required: [root_cause, verified]
+              properties:
+                root_cause:  { type: string }
+                verified:    { type: boolean }
+                audit_trail: { type: array, default: [] }
+                evidence:    { type: array, default: [] }
+            executor: { kind: noop }
+            output:
+              root_cause:  "$.arguments.root_cause"
+              verified:    "$.arguments.verified"
+              audit_trail: "$.arguments.audit_trail"
+              evidence:    "$.arguments.evidence"
+      done: { terminal: true }

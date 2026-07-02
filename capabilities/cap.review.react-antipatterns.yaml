@@ -1,0 +1,47 @@
+# capabilities/cap.review.react-antipatterns.yaml
+#
+# React-specific antipattern review. Surfaces the `review.react.best-practices`
+# skill (kind: noop, agent-driven) and reviews the diff against the host repo,
+# emitting findings + an overall verdict. The React complement to the base
+# repo's general `cognitive/cap.review.adversarial` (same shape). Findings feed
+# the build-loop's fix mode.
+workflows:
+  cap.review.react-antipatterns:
+    verb: review
+    lifecycle: experimental
+    description: >
+      Review the changed React/TypeScript against the React best-practices
+      antipattern catalog (led by useEffect-for-state-sync); surface findings
+      (file:line, antipattern, severity, fix) + an overall verdict.
+    snippet:
+      inputs:
+        diff_against: { type: string, required: true }
+        ui_path:      { type: string, required: false }
+      outputs:
+        verdict:  { type: string, enum: [approved, needs-revision, rejected] }
+        findings: { type: array }
+    skills: [review.react.best-practices]
+    initialState: ready
+    states:
+      ready:
+        goal: >
+          Review every changed React component against the antipattern catalog.
+          Check every useEffect (does it synchronize an external system, or is
+          it state-sync / derive / event-handler misuse?) and every piece of
+          state (is it derivable?). Cite findings file:line with the fix. Emit
+          'approved' only with zero CRITICAL/IMPORTANT findings.
+        transitions:
+          submit_review:
+            target: done
+            actor: agent
+            inputSchema:
+              type: object
+              required: [verdict]
+              properties:
+                verdict:  { type: string, enum: [approved, needs-revision, rejected] }
+                findings: { type: array, default: [] }
+            executor: { kind: noop }
+            output:
+              verdict:  "$.arguments.verdict"
+              findings: "$.arguments.findings"
+      done: { terminal: true }

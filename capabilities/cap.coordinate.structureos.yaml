@@ -1,0 +1,59 @@
+# capabilities/cap.coordinate.structureos.yaml
+#
+# Coordination cap: a thin GOVERNED pass-through to the StructureOS MCP.
+# Submit {action, params}; return the raw structureos response. V6 maps
+# the `coordinate` verb to a `kind: mcp` executor (the verb whose primary
+# executor is an MCP call — see cap.coordinate.cpm-plan in the base repo).
+#
+# Why a generic pass-through instead of one cap per action: structureos
+# is HATEOAS-shaped — every response's `_action` / `_required` hands back
+# the next {action, params} to call. So a single governed door (with
+# praxec's policy + audit + idempotency around it) lets a driver walk
+# the whole scan → propose → move → verify chain, feeding each step's
+# suggested next-call straight back in. The orchestrator
+# `flow.refactor.god-file` sequences the common god-file path on top.
+#
+# Operators wire the `structureos` connection in their gateway config
+# (reference: connections/structureos.yaml).
+#
+# NOTE on `map`: the McpExecutor's `render_args` requires every binding
+# VALUE to be a `$.scope.path` string (no literals, no nested object
+# literals) — but a path may RESOLVE to an object. So `params` is bound
+# from the whole input object. Both `action` and `params` are REQUIRED:
+# an unresolved binding fails-fast (it would otherwise call the tool with
+# wrong args). Pass `params: {}` for actions that take none.
+
+workflows:
+  cap.coordinate.structureos:
+    verb: coordinate
+    lifecycle: experimental
+    description: >
+      Governed pass-through to the StructureOS MCP: submit {action, params}
+      and return the raw structureos response (which is HATEOAS-shaped — it
+      tells you the next {action, params} to call).
+    snippet:
+      inputs:
+        action: { type: string, required: true }
+        params: { type: object, required: true }
+      outputs:
+        result: { type: object }
+    initialState: ready
+    states:
+      ready:
+        goal: Call StructureOS with the requested action + params; capture the result.
+        transitions:
+          call:
+            target: done
+            actor: deterministic
+            executor:
+              kind: mcp
+              connection: structureos
+              tool: structureos
+              # Bind the action string + the whole params object from the
+              # cap input (both REQUIRED — fail-fast on an unresolved bind).
+              map:
+                action: "$.workflow.input.action"
+                params: "$.workflow.input.params"
+            output:
+              result: "$.output"
+      done: { terminal: true }

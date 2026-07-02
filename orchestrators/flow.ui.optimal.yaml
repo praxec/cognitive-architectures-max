@@ -1,0 +1,320 @@
+# orchestrators/flow.ui.optimal.yaml
+#
+# THE optimal UI-build workflow. Composes the full cognitive-architectures-max
+# craft library into one pipeline that grounds a UI in HCI science AND the
+# intended users' researched JTBD, specifies it (INCOSE/EARS + NFR), designs it
+# (atomic + BFF/SDUI), QA's the design for customer-alignment (FMECA), builds it
+# (TDD + story-driven + React best-practices), verifies (ui-green), and reviews
+# (React antipatterns + adversarial) before PR.
+#
+# Each phase injects the relevant skill fragments via `scope.skills` — that is
+# where the "science + craft" lives. The base-repo caps (cognitive/cap.*) do the
+# orchestration work; the cognitive-max skills supply the expertise.
+#
+# ITERATE-TO-PERFECTION: this workflow is itself a dogfood target. Run it to
+# build a projection, measure the UX outcome with the product's own research/
+# simulation engine (feature_need / customer-alignment studies on the intended
+# users), and refine the skills + this flow. Each refinement is a commit; the
+# goal is asymptotic — "better than any other approach" is earned by surviving
+# repeated grounded evaluation, not asserted. See docs/spec-flow-ui-optimal.md.
+#
+# Same cross-repo-reference + state-shape caveats as flow.add-ui-feature
+# (load-test pending). base caps = cognitive/cap.*, local = cognitive-max/*.
+workflows:
+  flow.ui.optimal:
+    description: |
+      Optimal UI build: HCI+JTBD-grounded design -> INCOSE/EARS+NFR spec ->
+      atomic/BFF design -> customer-alignment FMECA -> signoff -> TDD/story-
+      driven build -> ui-green verify -> React-antipattern review -> adversarial
+      review -> PR. Iterated to perfection via grounded UX measurement.
+    inputs:
+      feature_brief: { type: string, required: true }
+      ui_path:       { type: string, default: ui }
+      base_ref:      { type: string, default: main }
+      lexicon:       { type: object, default: {} }
+    # FMECA-convergence round counter (LoopGuard bound for design_qa_gate).
+    # MUST be seeded via initialContext, not an input default: input defaults do
+    # NOT reliably seed $.context (a run with only feature_brief left
+    # fmeca_round=None, so every gate guard `< 3` / `>= 3` was false and the gate
+    # had no actionable move). No `blackboard:` block — declaring one would force
+    # every context slot to be declared there (warnings); initialContext seeds
+    # the counter on its own.
+    initialContext:
+      fmeca_round: 0
+    # ORCHESTRATE-DRIVE FIX: a flow is orchestrate-drivable only if it declares
+    # `outcomes` (with a `check`) + a terminal state marked `outcome: success`
+    # for the driver to steer toward. Without these, orchestrate "finds no
+    # actionable move." (praxec orchestrate / ADR-0009.)
+    outcomes:
+      - id: pr_opened
+        statement: A PR was opened for the built, verified, reviewed UI.
+        check: "$.context.pr_url != null"
+    initialState: designing
+    states:
+      designing:
+        # ITERATION-2 refinement: route the design science through the
+        # design-output cap (cognitive-max/cap.plan.ui-design — which CARRIES
+        # the HCI/atomic/BFF/SDUI/EARS/NFR skills and emits a `design` object),
+        # not cognitive/cap.plan.draft (whose plan-DAG contract the design
+        # guidance broke -> AGENT_OUTPUT_INCOMPLETE, iteration-1 finding).
+        transitions:
+          draft:
+            target: design_qa
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive-max/cap.plan.ui-design
+              use:
+                inputs:
+                  brief:   "$.context.feature_brief"
+                  lexicon: "$.context.lexicon"
+                outputs:
+                  "$.context.design_plan": design
+
+      # ===== Customer-alignment HARDENING LOOP (inlined reusable pattern) =====
+      # The FMECA must CONVERGE, not one-shot abort: assess -> gate ->
+      # { converged | mitigate -> re-assess | escalate }. Each pass re-runs the
+      # FULL FMECA on the CURRENT design, so a mitigation that introduces a new
+      # failure mode keeps the loop running (cannot silently pass). Bounded by
+      # fmeca_round (LoopGuard); on exhaustion it ESCALATES to the existing human
+      # signoff with the residual risk (never silent). Reusable units: the caps
+      # cognitive/cap.review.fmeca + cognitive/cap.refactor.mitigate-risks and the
+      # skills refactor.poka-yoke + refactor.triz. The engine forbids flow-nests-
+      # flow (V11), so the loop is INLINED; see base CA docs/spec-fmeca-converge.md
+      # for the pattern to drop into other flows.
+      design_qa:
+        # ASSESS: customer-alignment FMECA on the current design. The cognitive-
+        # max lens skill is in scope here (inline) so the enumeration is JTBD-
+        # framed; cap.review.fmeca's verdict is CODE-COMPUTED, not LLM.
+        scope:
+          skills:
+            - review.fmeca.customer-alignment
+        transitions:
+          fmeca:
+            target: design_qa_gate
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.review.fmeca
+              use:
+                inputs:
+                  subject:         "$.context.design_plan"
+                  subject_kind:    design
+                  matrix_strategy: qualitative3x3
+                outputs:
+                  "$.context.fmeca_ready":       ready
+                  "$.context.fmeca_risk_ranking": risk_ranking
+                  "$.context.fmeca_blockers":    blockers
+
+      design_qa_gate:
+        transitions:
+          converged:
+            target: awaiting_signoff
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.fmeca_ready == true" }
+          mitigate:
+            target: design_mitigate
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.fmeca_ready == false" }
+              - { kind: expr, expr: "$.context.fmeca_round < 3" }
+            output:
+              fmeca_round: { add: ["$.context.fmeca_round", 1] }
+          escalate:
+            # Bound hit without convergence: NOT a silent fail — proceed to the
+            # human signoff with fmeca_ready==false so the residual risk is
+            # weighed by a person (the LoopGuard escalation).
+            target: awaiting_signoff
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.fmeca_ready == false" }
+              - { kind: expr, expr: "$.context.fmeca_round >= 3" }
+
+      design_mitigate:
+        # MITIGATE: design the residual failure modes out via poka-yoke + TRIZ,
+        # then loop back to re-score. Guarded back-edge (bounded by fmeca_round).
+        transitions:
+          remediate:
+            target: design_qa
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.refactor.mitigate-risks
+              use:
+                inputs:
+                  artifact:     "$.context.design_plan"
+                  risk_ranking: "$.context.fmeca_risk_ranking"
+                  blockers:     "$.context.fmeca_blockers"
+                  subject_kind: design
+                outputs:
+                  "$.context.design_plan": artifact
+
+      awaiting_signoff:
+        transitions:
+          signoff:
+            target: signoff_gate
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.gate.human-signoff
+              use:
+                inputs:
+                  artifact: "$.context.design_plan"
+                  prompt:   "Approve the HCI+JTBD-grounded UI design for build?"
+                outputs:
+                  "$.context.signoff_decision": decision
+
+      signoff_gate:
+        transitions:
+          advance:
+            target: building
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.signoff_decision == 'approved'"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.signoff_decision == 'rejected'"
+
+      building:
+        # Build with the craft injected: behavioral TDD, atomic decomposition,
+        # story-driven development, and React best-practices (so antipatterns
+        # are avoided at authoring, not just caught at review).
+        scope:
+          skills:
+            - implement.tdd.behavioral-discipline
+            - implement.atomic.component-design
+            - implement.storybook.author
+            - review.react.best-practices
+        transitions:
+          build:
+            target: verifying_ui
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.implement.tdd-loop
+              use:
+                inputs:
+                  plan:        "$.context.design_plan"
+                  scope_paths: "$.context.ui_path"
+                outputs:
+                  "$.context.implementation_result": result
+
+      verifying_ui:
+        transitions:
+          verify_ui:
+            target: ui_gate
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive-max/cap.verify.ui-green
+              use:
+                inputs:
+                  ui_path: "$.context.ui_path"
+                outputs:
+                  "$.context.ui_verify_ok":           passed
+                  "$.context.ui_verify_failed_stage": failed_stage
+
+      ui_gate:
+        transitions:
+          advance:
+            target: reviewing_react
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.ui_verify_ok == true"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.ui_verify_ok == false"
+
+      reviewing_react:
+        transitions:
+          review_react:
+            target: react_gate
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive-max/cap.review.react-antipatterns
+              use:
+                inputs:
+                  diff_against: "$.context.base_ref"
+                  ui_path:      "$.context.ui_path"
+                outputs:
+                  "$.context.react_verdict":  verdict
+                  "$.context.react_findings": findings
+
+      react_gate:
+        transitions:
+          advance:
+            target: reviewing_adversarial
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.react_verdict == 'approved'"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.react_verdict == 'rejected'"
+
+      reviewing_adversarial:
+        transitions:
+          review:
+            target: adversarial_gate
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.review.adversarial
+              use:
+                inputs:
+                  diff_against: "$.context.base_ref"
+                outputs:
+                  "$.context.review_verdict":  verdict
+                  "$.context.review_findings": findings
+
+      adversarial_gate:
+        transitions:
+          advance:
+            target: opening_pr
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.review_verdict == 'approved'"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.review_verdict == 'rejected'"
+
+      opening_pr:
+        transitions:
+          open:
+            target: done
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.coordinate.pr-open
+              use:
+                inputs:
+                  title: "$.context.feature_brief"
+                  body:  "$.context.feature_brief"
+                  base:  "$.context.base_ref"
+                outputs:
+                  "$.context.pr_url":    url
+                  "$.context.pr_number": pr_number
+
+      done:
+        terminal: true
+        outcome: success
+
+      failed:
+        terminal: true

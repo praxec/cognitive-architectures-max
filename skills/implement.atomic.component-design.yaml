@@ -1,0 +1,69 @@
+# skills/implement.atomic.component-design.yaml
+#
+# LLM-guidance fragment (verb `implement`) for designing/authoring a component
+# tree using Atomic Design (Brad Frost), grounded in interface-composition and
+# the host product's design system. Injected into an implement state, and into
+# `flow.refactor.to-atomic-design`. Pairs with `review.react.best-practices`
+# (the antipattern complement) and `plan.bff.pattern-api` (where the data comes from).
+skills:
+  implement.atomic.component-design:
+    verb: implement
+    lifecycle: stable
+    source: cognitive-architectures-max
+    body: |
+      # Atomic component design
+
+      Build interfaces as a composition hierarchy, smallest → largest. Each
+      level has ONE responsibility and a clear, typed contract, so it can be
+      understood, tested, and restyled in isolation.
+
+      ## The five levels
+      - **Atoms** — irreducible primitives: Button, Input, Badge, Label, Icon,
+        Stat (a mono tabular number). No business knowledge, no data fetching,
+        no layout of *other* domain components. Props are presentational
+        (variant, size, state) + `children`. They consume design tokens, never
+        hard-coded colors/spacing.
+      - **Molecules** — a few atoms bound to do one small job: a labeled field
+        (Label + Input + error), a stat row (Label + Stat + ProvenanceChip), a
+        search box (Input + Button). Still presentational; takes data via props.
+      - **Organisms** — a distinct section assembled from molecules/atoms: a
+        Gap panel, a Findings list, a nav rail. May own *local UI* state
+        (open/closed) but not business/data logic.
+      - **Templates** — page-level layout: arrange organisms into a grid/region
+        skeleton with no real data (the wireframe made of real components).
+      - **Pages** — a template bound to a concrete view model: fetch/receive the
+        server-composed data (see `plan.bff.pattern-api`), pass it down. The page is
+        the ONLY level that knows about data sources.
+
+      ## Design rules
+      - **Responsibility test:** can you name what this component does in one
+        clause without "and"? If not, split it.
+      - **Contract over internals:** a parent should depend on a child's props,
+        never its internals. Restyling/replacing a child must not touch parents.
+      - **Data flows down, lives at the page** (or a route loader). Atoms and
+        molecules NEVER fetch — that's the #1 atomic-design violation (see
+        `review.react.best-practices` §4). Push data up to the page; pass props
+        down.
+      - **Composition over configuration:** prefer `children`/slots to a growing
+        prop list. A component with 12 boolean props wants to be several
+        components or a slotted one.
+      - **Name by role, not by appearance** (`PrimaryButton`, not `BlueButton`;
+        `GapPanel`, not `AmberBox`) — appearance is a token/variant concern.
+      - **Tokens, not literals:** every color/space/type value comes from the
+        design system. A literal hex in a component is a defect.
+      - **Variants are data:** express states (loading/empty/error/partial) as
+        explicit variants with honest content — never a fake/auto-filled state.
+      - **One component per file**, named for its role; co-locate its story
+        (`*.stories.tsx`, see `implement.storybook.author`) and test.
+
+      ## When to split (and when NOT to)
+      Split when: a file passes ~150 lines or two responsibilities; a chunk is
+      reused; a chunk has its own state/variant matrix worth testing alone.
+      Don't split prematurely into atoms nobody reuses — extract on the second
+      use, not in anticipation. YAGNI applies to the component tree too.
+
+      ## Output
+      When designing: produce the component tree (level + name + one-line
+      responsibility + props contract + which atoms/molecules it composes) and
+      mark where the page binds the view model. When authoring: build leaf-up,
+      each level with its story + a render test of its variants.

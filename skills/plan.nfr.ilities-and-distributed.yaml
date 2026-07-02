@@ -1,0 +1,71 @@
+# skills/plan.nfr.ilities-and-distributed.yaml
+#
+# LLM-guidance fragment (verb `plan`) — a standalone Non-Functional Requirements
+# skill: the quality 'ilities' + the fallacies of distributed computing, each
+# with how to ADDRESS it and how to TURN IT INTO A TESTABLE REQUIREMENT. Used in
+# design/spec states and consumed by `plan.spec.incose-ears` (NFR -> EARS spec) and
+# `implement.tdd.behavioral-discipline` (NFR tests).
+skills:
+  plan.nfr.ilities-and-distributed:
+    verb: plan
+    lifecycle: stable
+    source: cognitive-architectures-max
+    body: |
+      # Non-functional requirements — the 'ilities' + distributed fallacies
+
+      Functional reqs say what the system does; NFRs say how WELL, and under
+      what stress. An unstated NFR is a default you didn't choose. For each
+      relevant NFR below, state the requirement with a MEASURABLE target and a
+      test (see `plan.spec.incose-ears` to phrase it, `implement.tdd.behavioral-discipline` to
+      test it).
+
+      ## The fallacies of distributed computing (assume the opposite of each)
+      Any call across a process boundary must address all eight:
+      1. **The network is reliable** → timeouts, retries with backoff + jitter,
+         idempotency, circuit breakers, dead-letter/quarantine on exhaustion.
+      2. **Latency is zero** → deadlines/budgets, async where it matters, avoid
+         chatty round-trips, degrade gracefully when slow.
+      3. **Bandwidth is infinite** → bound payloads, paginate, stream, budget
+         token/byte sizes (a prompt/response is a payload too).
+      4. **The network is secure** → authn/authz at every boundary, encrypt in
+         transit, least privilege, no secrets in logs.
+      5. **Topology doesn't change** → service discovery, no hard-coded hosts,
+         tolerate failover/rebalancing.
+      6. **There is one administrator** → versioned contracts, backward/forward
+         compatibility, no assumption of coordinated deploys.
+      7. **Transport cost is zero** → cache, batch, account for serialization +
+         connection cost.
+      8. **The network is homogeneous** → interoperate via explicit contracts;
+         don't assume identical stacks/clocks (inject/skew-tolerate time).
+
+      ## The 'ilities' (pick the ones the system's risk demands; set targets)
+      - **Reliability / availability** — failure modes enumerated (FMECA),
+        fail-closed defaults, partial-tolerance, target uptime/error budget.
+      - **Scalability / performance** — throughput + latency targets (p50/p95/
+        p99), load behavior, backpressure (e.g. adaptive concurrency), no
+        unbounded loops/queues.
+      - **Observability** — every decision/failure emits a structured event;
+        you can answer "what happened and why" from telemetry. Make silent
+        degradation impossible (log what was dropped/capped).
+      - **Security** — authz at boundaries, input validation/reject-malformed-
+        at-write, secret hygiene, supply-chain awareness.
+      - **Maintainability** — clear seams, small focused units, no god files
+        (structureos), documented contracts.
+      - **Recoverability / durability** — durable state, idempotent retries,
+        recoverable/resumable long-running work, no data loss on crash.
+      - **Usability / accessibility** — the UX 'ilities': a11y, honest states,
+        cognitive load (defer to the UX skills).
+      - **Testability** — seams + determinism (see the TDD skill).
+      - **Portability / interoperability / configurability** — explicit
+        contracts; behavior varies by DATA/config, not compiled branches.
+
+      ## Discipline
+      - Every High-risk NFR gets a MEASURABLE target and a test; "fast",
+        "reliable", "secure" without a number/condition is not a requirement.
+      - Tie each NFR to the risk that motivates it (don't gold-plate 'ilities'
+        the system doesn't need — YAGNI applies).
+
+      ## Output
+      The applicable NFRs with measurable targets, the distributed-fallacy
+      mitigations for each cross-boundary call, and a note of which become EARS
+      specs + which become tests.

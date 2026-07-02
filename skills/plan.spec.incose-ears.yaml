@@ -1,0 +1,70 @@
+# skills/plan.spec.incose-ears.yaml
+#
+# LLM-guidance fragment (verb `plan`) for writing requirements/specs to INCOSE
+# quality characteristics, expressed in EARS (Easy Approach to Requirements
+# Syntax), including turning NFRs into concrete, testable specs. Deepens the
+# base repo's `cognitive/review.spec.ears-testability`. Consumes
+# `plan.nfr.ilities-and-distributed`; feeds `implement.tdd.behavioral-discipline` (each spec
+# clause -> a behavioral test).
+skills:
+  plan.spec.incose-ears:
+    verb: plan
+    lifecycle: stable
+    source: cognitive-architectures-max
+    body: |
+      # Specs — INCOSE quality, expressed in EARS
+
+      A requirement is a contract a test can check. Write each to the INCOSE
+      characteristics and in an EARS pattern so it is unambiguous and testable.
+
+      ## INCOSE quality characteristics (per requirement)
+      Necessary, Appropriate, Unambiguous, Complete, Singular (ONE requirement —
+      no "and"/"also" hiding two), Feasible, Verifiable (a test can pass/fail
+      it), Correct, Conforming. And as a SET: complete (no gaps), consistent (no
+      contradictions), bounded (in scope), traceable (each to a need + forward
+      to a test). Reject vague verbs ("support", "handle", "manage", "robust")
+      and unmeasurable adjectives ("fast", "user-friendly") — replace with a
+      measurable condition.
+
+      ## EARS patterns (pick the one that fits; that's the whole syntax)
+      - **Ubiquitous** (always true): `The <system> shall <response>.`
+      - **State-driven** (while in a state): `While <precondition/state>, the
+        <system> shall <response>.`
+      - **Event-driven** (on a trigger): `When <trigger>, the <system> shall
+        <response>.`
+      - **Optional-feature** (if present): `Where <feature is included>, the
+        <system> shall <response>.`
+      - **Unwanted-behavior** (the load-bearing one): `If <unwanted condition>,
+        then the <system> shall <response>.` — every error/abuse/edge path gets
+        one. These become the negative tests.
+      - **Complex**: combine, e.g. `While <state>, when <trigger>, the <system>
+        shall <response>.`
+      Each clause names ONE system, ONE trigger/condition, ONE response, with
+      measurable values. One EARS sentence ≈ one test.
+
+      ## Turning NFRs into specs (don't leave 'ilities' as adjectives)
+      Take each NFR (from `plan.nfr.ilities-and-distributed`) and make it an EARS,
+      testable clause with a number + a condition:
+      - "reliable" → `If a transient downstream error occurs, then the system
+        shall retry up to N times with backoff before quarantining the unit.`
+      - "fast" → `When a request is received, the system shall respond within
+        <p95 = X ms>.`
+      - "observable" → `When a unit fails, the system shall emit a structured
+        event naming the unit, cause, and disposition.`
+      - "no silent degradation" → `If results are truncated/capped, then the
+        system shall log the count dropped.`
+      Each clause then maps 1:1 to a behavioral test (see the TDD skill).
+
+      ## Discipline
+      - Singular check: split any requirement containing "and/or/also/then …
+        and".
+      - Verifiability check: for each, name HOW it's verified (test, analysis,
+        inspection, demonstration). If you can't, it's not a requirement yet.
+      - Traceability: tag each to the need it serves (the JTBD step / NFR) and
+        leave a hook for the test that will cover it.
+
+      ## Output
+      The requirement set as numbered EARS clauses (each singular, measurable,
+      verifiable, traceable), NFRs converted to EARS, and the verification
+      method per clause. This set is the contract the build + tests are written
+      against.

@@ -1,0 +1,158 @@
+# orchestrators/flow.refactor.to-atomic-design.yaml
+#
+# Refactor an existing (often god-) component into an Atomic Design tree, safely.
+# Leverages structureos (god-file/complexity detection) in the planning state,
+# the `implement.atomic.component-design` skill (the decomposition craft), the UI-green
+# gate, and the React-antipattern review. The UX-factory analogue of the base
+# repo's `cognitive/flow.safe-refactor`.
+#
+# Same state-shape + cross-repo-reference caveats as flow.add-ui-feature
+# (load-test pending; base caps referenced as cognitive/cap.*, local as
+# cognitive-max/cap.*). See docs/spec-p1-ui-verify-pack.md.
+workflows:
+  flow.refactor.to-atomic-design:
+    description: |
+      Decompose a target component into atoms/molecules/organisms/templates:
+      analyze structure (structureos) -> decomposition plan -> human signoff ->
+      behavior-preserving refactor -> ui-green verify -> React-antipattern review.
+    inputs:
+      target_path: { type: string, required: true }   # the component/dir to decompose
+      ui_path:     { type: string, default: ui }
+      base_ref:    { type: string, default: main }
+      lexicon:     { type: object, default: {} }
+    initialState: planning_decomposition
+    states:
+      planning_decomposition:
+        # structureos is available via the gateway connection; the atomic skill
+        # is the decomposition rubric. The agent reads target_path's structural
+        # metrics (size, complexity, responsibilities) and emits a component tree.
+        scope:
+          skills:
+            - implement.atomic.component-design
+        transitions:
+          draft:
+            target: awaiting_signoff
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.plan.draft
+              use:
+                inputs:
+                  brief:   "$.context.target_path"
+                  lexicon: "$.context.lexicon"
+                outputs:
+                  "$.context.decomposition_plan": plan
+
+      awaiting_signoff:
+        transitions:
+          signoff:
+            target: signoff_received
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.gate.human-signoff
+              use:
+                inputs:
+                  artifact: "$.context.decomposition_plan"
+                  prompt:   "Approve the atomic-design decomposition plan?"
+                outputs:
+                  "$.context.signoff_decision": decision
+
+      signoff_received:
+        transitions:
+          advance:
+            target: refactoring
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.signoff_decision == 'approved'"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.signoff_decision == 'rejected'"
+
+      refactoring:
+        # Behavior-preserving: the TDD/build loop refactors against the existing
+        # tests + stories (see implement.storybook.author) — green stays green.
+        transitions:
+          refactor:
+            target: verifying_ui
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.implement.tdd-loop
+              use:
+                inputs:
+                  plan:        "$.context.decomposition_plan"
+                  scope_paths: "$.context.target_path"
+                outputs:
+                  "$.context.refactor_result": result
+
+      verifying_ui:
+        transitions:
+          verify_ui:
+            target: ui_verified
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive-max/cap.verify.ui-green
+              use:
+                inputs:
+                  ui_path: "$.context.ui_path"
+                outputs:
+                  "$.context.ui_verify_ok":           passed
+                  "$.context.ui_verify_failed_stage": failed_stage
+
+      ui_verified:
+        transitions:
+          advance:
+            target: reviewing
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.ui_verify_ok == true"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.ui_verify_ok == false"
+
+      reviewing:
+        transitions:
+          review:
+            target: reviewed
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive-max/cap.review.react-antipatterns
+              use:
+                inputs:
+                  diff_against: "$.context.base_ref"
+                  ui_path:      "$.context.ui_path"
+                outputs:
+                  "$.context.review_verdict":  verdict
+                  "$.context.review_findings": findings
+
+      reviewed:
+        transitions:
+          advance:
+            target: done
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.review_verdict == 'approved'"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.review_verdict == 'rejected'"
+
+      done:
+        terminal: true
+
+      failed:
+        terminal: true

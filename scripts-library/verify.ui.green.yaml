@@ -1,0 +1,29 @@
+version: "1.0.0"
+scripts:
+  verify.ui.green:
+    verb: verify
+    lifecycle: stable
+    source: cognitive-architectures-max
+    body: |
+      #!/usr/bin/env bash
+      # UI green gate: install, typecheck, build must all pass for the frontend.
+      # The TypeScript/Vite complement to verify.workspace.green (cargo). The ui
+      # directory is passed as $1. The target project (simuli/ui) has NO eslint
+      # configured — its own `npm run build` is `tsc --noEmit && vite build` — so
+      # the honest gate is install -> tsc --noEmit -> vite build. (An eslint stage
+      # can be added here once the UI project adopts an eslint config.)
+      # Exits 0 only if all stages pass; emits a JSON summary on stdout.
+      set -euo pipefail
+      ui_dir="${1:?ui_path required (path to the frontend dir, e.g. ui)}"
+      cd "$ui_dir"
+
+      stage_fail() {
+        echo "{\"passed\": false, \"failed_stage\": \"$1\", \"subject\": \"${PRAXEC_SCRIPT_SUBJECT:-verify.ui.green}\"}"
+        exit 1
+      }
+
+      npm ci >&2            || stage_fail "install"
+      npx tsc --noEmit >&2  || stage_fail "typecheck"
+      npx vite build >&2    || stage_fail "build"
+
+      echo "{\"passed\": true, \"stages\": [\"install\", \"typecheck\", \"build\"], \"subject\": \"${PRAXEC_SCRIPT_SUBJECT:-verify.ui.green}\"}"

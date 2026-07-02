@@ -1,0 +1,81 @@
+version: "1.0.0"
+scripts:
+  run.preveti.ux-study:
+    verb: run
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      #!/usr/bin/env python3
+      # Run a UX / product simulation through the PREVETI API and return its
+      # grounded findings — the measurement engine for flow.ui.optimal's
+      # iterate-to-perfection loop (build a UI -> simulate it against the
+      # intended-user archetype -> refine). praxec leveraging the Preveti API
+      # as a power feature.
+      #
+      # Arg $1 = path to a study-request JSON (the POST body for the endpoint).
+      # Env:
+      #   PREVETI_API_BASE  (default http://localhost:8090)
+      #   PREVETI_API_KEY   (required; exchanged at /v1/token for a JWT)
+      #   PREVETI_ENDPOINT  (default /v1/intel/grounded)
+      # Emits a JSON summary on stdout: {passed, job_id, status, result}.
+      import json, os, sys, time, urllib.request, urllib.error
+
+      def die(stage, msg):
+          print(json.dumps({"passed": False, "failed_stage": stage, "error": msg[:400]}))
+          sys.exit(1)
+
+      base = os.environ.get("PREVETI_API_BASE", "http://localhost:8090").rstrip("/")
+      key = os.environ.get("PREVETI_API_KEY")
+      endpoint = os.environ.get("PREVETI_ENDPOINT", "/v1/intel/grounded")
+      if not key:
+          die("config", "PREVETI_API_KEY required")
+      req_path = sys.argv[1] if len(sys.argv) > 1 else None
+      if not req_path or not os.path.exists(req_path):
+          die("config", "study-request JSON path (arg 1) required")
+      body = json.load(open(req_path))
+
+      def call(path, payload=None, token=None, timeout=180):
+          data = json.dumps(payload).encode() if payload is not None else None
+          r = urllib.request.Request(base + path, data=data,
+                                     method="POST" if data is not None else "GET")
+          if data: r.add_header("content-type", "application/json")
+          if token: r.add_header("authorization", f"Bearer {token}")
+          with urllib.request.urlopen(r, timeout=timeout) as resp:
+              return json.loads(resp.read().decode())
+
+      # 1. key -> JWT
+      try:
+          tok = call("/v1/token", {"api_key": key}).get("access_token")
+      except urllib.error.HTTPError as e:
+          die("auth", f"{e.code}: {e.read().decode()}")
+      if not tok:
+          die("auth", "no access_token returned")
+
+      # 2. submit the study
+      try:
+          jid = call(endpoint, body, tok).get("job_id")
+      except urllib.error.HTTPError as e:
+          die("submit", f"{e.code}: {e.read().decode()}")
+      if not jid:
+          die("submit", "no job_id returned")
+
+      # 3. poll to a terminal state
+      deadline = time.time() + 60 * 15
+      status, detail = "running", {}
+      while time.time() < deadline:
+          time.sleep(8)
+          try:
+              tok = call("/v1/token", {"api_key": key}).get("access_token")
+              detail = call(f"/v1/intel/jobs/{jid}", token=tok)
+          except urllib.error.HTTPError:
+              continue
+          status = detail.get("status", "running")
+          if status in ("succeeded", "failed", "partial"):
+              break
+
+      print(json.dumps({
+          "passed": status in ("succeeded", "partial"),
+          "job_id": jid,
+          "status": status,
+          "result": detail.get("result", detail),
+      }))

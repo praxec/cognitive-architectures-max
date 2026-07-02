@@ -1,0 +1,14 @@
+node_modules/
+target/
+*.log
+# Added by intentos
+milestones.json
+.write.lock
+llm/
+.cache/
+workspace-manifest.json
+.spec-fingerprint.json
+
+# StructureOS/FrontRails scratch — local tooling, not repo content
+.frontrails/
+.structureos/

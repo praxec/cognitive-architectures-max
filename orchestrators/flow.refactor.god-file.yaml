@@ -1,0 +1,289 @@
+# orchestrators/flow.refactor.god-file.yaml
+#
+# Decompose a god file with StructureOS — the paid structural-refactor
+# engine — under praxec governance, then PROVE it compiles + self-heal the
+# move's known-lossy edges:
+#
+#   scanning   → structureos scan_repo            (find/refresh god files)
+#   proposing  → structureos propose_decomposition (safety-checked groups)
+#   reviewing  → HUMAN gate: pick a group, supply the move params         ← poka-yoke
+#   decomposing→ structureos move                 (apply: imports/vis/re-exports rewired)
+#   verifying  → structureos verify               (re-scan; structural gate)
+#   building   → cargo (fmt+clippy+test)          ← the REAL acceptance gate
+#   build_gate → green→done | red→fixing (bounded) | red@cap→human
+#   fixing     → agent fixes the known post-move edges → re-build
+#
+# WHY a human gate before `move`: scan/propose are read-only, but `move`
+# REWRITES source. StructureOS computes a safety proof, but praxec still
+# refuses to auto-mutate a repo — a person reads the proposal and chooses
+# which group to extract (pasting that group's `move` call params from the
+# proposal's `_required`/`proposed_groups`, with dry_run:false to apply or
+# true to preview).
+#
+# WHY a cargo build gate AFTER move: `structureos verify` is a STRUCTURAL
+# re-scan — necessary but NOT sufficient. The move has KNOWN lossy edges the
+# compiler must catch (see the FMECA on `fixing`). So the operator's
+# `cargo check + clippy + test` is the real acceptance gate, and it now runs
+# IN the flow (not as out-of-band prose): a red build loops into an agent
+# fixup pass instead of declaring a broken decomposition "done".
+#
+# Requires the `structureos` connection (connections/structureos.yaml) and a
+# coding agent for the `fixing` step (wired by the auto-drive, like the
+# build-loop's `coding` leaf).
+
+workflows:
+  flow.refactor.god-file:
+    lifecycle: experimental
+    description: >
+      Governed god-file decomposition via StructureOS: scan → propose →
+      HUMAN approves a group → move (all wiring computed) → structural verify →
+      cargo build gate → agent fixup loop until green. Read-only until the human
+      gate; never auto-mutates source; never declares a decomposition done
+      until it actually compiles + lints + tests clean.
+    # Flows declare `inputs:` directly (no `verb:`/`snippet:` — those are
+    # capability-only; SPEC §4/§5.1).
+    inputs:
+      # The god file to decompose, repo-relative (e.g.
+      # "crates/praxec/src/gateway.rs").
+      target_path: { type: string, required: true }
+      # The directory cargo runs in for the build gate AND the crate the fixup
+      # agent edits — a workspace MEMBER dir, so verify.cargo.cwd scopes to it
+      # (the god file lives under here, e.g. "crates/praxec-agents").
+      repo_path:   { type: string, required: true }
+    initialState: scanning
+    initialContext:
+      # Literal action strings live here so the mcp `map:` can bind them as
+      # `$.context.*` paths (a path may resolve to a literal).
+      act_scan:     "scan_repo"
+      act_propose:  "propose_decomposition"
+      act_move:     "move"
+      act_verify:   "verify"
+      empty_params: {}
+      move_params:  {}
+      # propose_decomposition's group cap — now assembled INTO the call below
+      # (the `map:` template resolves a path + this literal into the nested
+      # `params` object), so the caller no longer hand-builds propose_params.
+      max_groups:   5
+      # Build-gate loop state (seed so the first gate + the {add} have values).
+      fix_iter:      0
+      build_passed:  false
+      build_issues:  ""
+      build_summary: ""
+    states:
+
+      # READ-ONLY: refresh the structural model so propose works on current
+      # evidence (structureos requires a scan before metrics/decomposition).
+      scanning:
+        goal: Scan the repo so StructureOS has a current structural model.
+        transitions:
+          scan:
+            target: proposing
+            actor: deterministic
+            executor:
+              kind: mcp
+              connection: structureos
+              tool: structureos
+              map:
+                action: "$.context.act_scan"
+                params: "$.context.empty_params"
+            output:
+              scan_result: "$.output"
+
+      # READ-ONLY: ask StructureOS for a safety-checked decomposition of the
+      # target god file. The `params` object is ASSEMBLED HERE from target_path +
+      # max_groups (the mcp `map:` template resolves the `$.` path and keeps the
+      # literal) — no caller-supplied propose_params, so its `path` can never
+      # drift from `target_path` (poka-yoke: one source of truth).
+      proposing:
+        goal: Propose a safety-checked decomposition of the target god file.
+        transitions:
+          propose:
+            target: reviewing
+            actor: deterministic
+            executor:
+              kind: mcp
+              connection: structureos
+              tool: structureos
+              map:
+                action: "$.context.act_propose"
+                params:
+                  path:       "$.workflow.input.target_path"
+                  max_groups: "$.context.max_groups"
+            output:
+              proposal: "$.output"
+
+      # HUMAN GATE (poka-yoke): nothing has mutated yet. A person reads
+      # $.context.proposal, picks ONE group to extract, and supplies its
+      # `move` params (from the proposal's `_required[].call.params` /
+      # `proposed_groups`) — set dry_run:false to apply, true to preview.
+      reviewing:
+        goal: >
+          Review the StructureOS decomposition proposal ($.context.proposal).
+          It is safety-checked but you decide what to apply. Supply
+          `move_params` for the group to extract — the `move` call params from
+          the proposal (filter.name + filter.path + target_path). Set
+          dry_run:false to APPLY (rewrites source, rewires imports/visibility/
+          re-exports) or dry_run:true to preview first.
+        transitions:
+          approve:
+            target: decomposing
+            actor: human
+            inputSchema:
+              type: object
+              required: [move_params]
+              properties:
+                move_params: { type: object }
+            executor: { kind: noop }
+            output:
+              move_params: "$.arguments.move_params"
+
+      # MUTATING (post-approval): apply the chosen move. StructureOS rewrites
+      # the source and computes the mod decl, visibility upgrades, per-entity
+      # imports, and grouped re-export for you.
+      decomposing:
+        goal: Apply the approved StructureOS move (extract the group into its module).
+        transitions:
+          move:
+            target: verifying
+            actor: deterministic
+            executor:
+              kind: mcp
+              connection: structureos
+              tool: structureos
+              map:
+                action: "$.context.act_move"
+                params: "$.context.move_params"
+            output:
+              move_result: "$.output"
+
+      # Structural re-scan: confirm StructureOS's own gate after the move. This
+      # is necessary but NOT sufficient (it does not compile anything) — it
+      # proceeds unconditionally to the cargo build gate, which is the real test.
+      verifying:
+        goal: Verify the StructureOS structural gate after the move.
+        transitions:
+          verify:
+            target: building
+            actor: deterministic
+            executor:
+              kind: mcp
+              connection: structureos
+              tool: structureos
+              map:
+                action: "$.context.act_verify"
+                params: "$.context.empty_params"
+            output:
+              verify_result: "$.output"
+
+      # THE REAL ACCEPTANCE GATE: run the operator's build (fmt + clippy + test)
+      # scoped to repo_path's package. Soft (always exits 0, reports `passed`),
+      # so a red build is DATA that routes to a fixup pass — never an abort.
+      building:
+        goal: Compile + lint + test the decomposed crate — the real acceptance gate.
+        transitions:
+          build:
+            target: build_gate
+            actor: deterministic
+            executor:
+              kind: script
+              subject: verify.cargo.cwd
+              workingDirectory: "$.workflow.input.repo_path"
+            output:
+              build_passed:  "$.output.json.passed"
+              build_summary: "$.output.json.summary"
+              # COMPLETE error/warning list (not a tail) so one fixup pass fixes
+              # everything the move broke at once.
+              build_issues:  "$.output.json.issues"
+              fix_iter:      { add: ["$.context.fix_iter", 1] }
+
+      # BRANCH — exactly one viable (engine requirement); the three guards are
+      # mutually exclusive AND exhaustive over (build_passed, fix_iter vs cap=4).
+      build_gate:
+        transitions:
+          # Green: the decomposition compiles, lints, and tests clean — done.
+          accept:
+            target: done
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.build_passed == true" }
+          # Red, under the cap: hand the build errors to the fixup agent.
+          fix:
+            target: fixing
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.build_passed == false" }
+              - { kind: expr, expr: "$.context.fix_iter < 4" }
+          # Red at the cap: the move's edges aren't converging — surface to a
+          # human (no silent spin, no silent broken "done").
+          escalate_unfixed:
+            target: needs_human
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.build_passed == false" }
+              - { kind: expr, expr: "$.context.fix_iter >= 4" }
+
+      # AGENT FIXUP: close StructureOS's KNOWN-lossy post-move edges that the
+      # compiler just flagged. FMECA (observed dogfooding gateway.rs #25 +
+      # rig_runner.rs, 2026-06-28..30) — the move relocates bodies + most wiring
+      # but predictably leaves:
+      #   - stripped `#[derive(...)]` / `#[command(...)]` on moved types
+      #     (re-attach them to the moved item);
+      #   - a HALLUCINATED import for a non-type (e.g. an enum variant) — drop it;
+      #   - the TYPE upgraded to pub(crate) but its FIELDS left private when
+      #     constructed/read cross-module — upgrade the fields too;
+      #   - DUPLICATE imports and missing trait/type-alias imports
+      #     (e.g. anyhow::Context, a cross-module `type` alias) — dedup + add;
+      #   - a dangling `#[cfg(test)]` / orphaned re-export when a helper moved
+      #     (re-point or remove it).
+      # Fix ALL issues in $.context.build_issues this pass ($.context.build_summary
+      # has the raw tail); the build step re-runs cargo after.
+      fixing:
+        goal: >
+          The StructureOS move applied but the crate does not yet compile/lint/
+          test clean. Fix EVERY issue in $.context.build_issues (errors AND
+          warnings) — these are the move's known-lossy edges: re-attach derives
+          stripped off moved types, drop hallucinated/duplicate imports, add
+          missing trait/type-alias imports, upgrade now-cross-module struct
+          FIELDS to pub(crate) (not just the type), and repair any dangling
+          #[cfg(test)] / orphaned re-export left when a helper moved. Do NOT
+          change behavior — this is a behavior-preserving decomposition; only
+          repair the wiring the move could not. $.context.build_summary has the
+          raw cargo tail for context.
+        transitions:
+          fixed:
+            target: building
+            actor: agent
+            inputSchema:
+              type: object
+              required: [done]
+              properties:
+                done:          { type: boolean }
+                files_written: { type: string }
+            executor: { kind: noop }
+            output:
+              files_written: "$.arguments.files_written"
+
+      # Bounded → surface to a human (no silent spin, no silent broken done).
+      # The operator decides: keep fixing by hand, revert the move, or accept.
+      needs_human:
+        goal: >
+          The decomposition's post-move edges did not converge to a green build
+          within the fixup budget. Review $.context.build_issues /
+          $.context.build_summary and decide: fix by hand, revert the move, or
+          accept as-is.
+        transitions:
+          review_scope:
+            target: done
+            actor: human
+            inputSchema:
+              type: object
+              required: [decision]
+              properties:
+                decision: { type: string }
+                result:   { type: object }
+            executor: { kind: noop }
+            output:
+              result: "$.arguments.result"
+
+      done:
+        terminal: true

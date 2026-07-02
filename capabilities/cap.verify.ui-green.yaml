@@ -1,0 +1,41 @@
+# capabilities/cap.verify.ui-green.yaml
+#
+# Deterministic cap: bind to the `verify.ui.green` script to install + typecheck
+# + build the TypeScript/Vite frontend under `ui_path`. The UI complement to the
+# base repo's `cap.verify.workspace-green` (cargo). Verb `verify` (the
+# deterministic script gate) -> requires a `kind: script` executor, like
+# cap.verify.workspace-green / cap.verify.stub-scan. The script needs the ui
+# dir, so the cap passes it from $.workflow.input.ui_path as a positional arg.
+
+workflows:
+  cap.verify.ui-green:
+    verb: verify
+    lifecycle: experimental
+    description: >
+      Deterministic UI green gate: npm ci + tsc --noEmit + vite build under the
+      frontend dir; emit passed (true iff every stage passes) + the failed stage
+      name when a stage fails.
+    snippet:
+      inputs:
+        ui_path: { type: string, required: true }
+      outputs:
+        passed:       { type: boolean }
+        failed_stage: { type: string }
+    initialState: ready
+    states:
+      ready:
+        goal: Install, typecheck, and build the UI; emit passed + failed_stage.
+        transitions:
+          run:
+            target: done
+            actor: deterministic
+            executor:
+              kind: script
+              subject: verify.ui.green
+              args:
+                - "$.workflow.input.ui_path"
+            # Script executor wraps stdout; parsed JSON is at $.output.json.*
+            output:
+              passed:       "$.output.json.passed"
+              failed_stage: "$.output.json.failed_stage"
+      done: { terminal: true }

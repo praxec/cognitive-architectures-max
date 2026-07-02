@@ -1,0 +1,31 @@
+# connections/structureos.yaml
+#
+# REFERENCE connection (operators copy into their gateway config; the
+# manifest deliberately keeps connections/ out of its load layout —
+# layout.connections points at an unused dir).
+#
+# MCP connection to StructureOS — structural analysis + safety-checked
+# refactor engine. Backs `cap.coordinate.structureos` and the
+# `flow.refactor.god-file` orchestrator: scan a repo, find god files,
+# propose a decomposition, and apply it (move entities into new modules
+# with imports/visibility/re-exports rewired automatically).
+#
+# Install: `cargo install structureos-mcp` (binary `structureos-mcp`,
+# MCP/stdio). The single tool `structureos` is action-dispatched:
+#   {action, params}. Read-only actions: scan_repo, get_metrics,
+#   get_skeleton, propose_decomposition, get_diagnostics, impact_analysis,
+#   detect_cycles, search, verify_fix. Mutating actions (require a HITL
+#   gate in the flow): move, decompose_method, merge_files, break_cycle,
+#   extract_methods, apply_pattern. Every structureos response is
+#   HATEOAS-shaped — `_action` / `_required` hand back the next
+#   {action, params} to call.
+
+connections:
+  structureos:
+    kind: mcp
+    command: structureos-mcp
+    description: >
+      StructureOS structural analysis + refactor engine. Backs
+      cap.coordinate.structureos and flow.refactor.god-file: scan,
+      propose a god-file decomposition, and apply it with all wiring
+      (mod decl, visibility, imports, re-exports) computed for you.

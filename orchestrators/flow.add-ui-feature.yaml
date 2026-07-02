@@ -1,0 +1,251 @@
+# orchestrators/flow.add-ui-feature.yaml
+#
+# Full-stack feature delivery — the UX-factory variant of the base repo's
+# `cognitive/flow.add-feature`. Identical plan -> vet -> signoff -> TDD ->
+# gap-track pipeline, but the verify phase runs TWO deterministic gates in
+# sequence: the backend cargo gate (`cognitive/cap.verify.workspace-green`)
+# THEN the frontend UI gate (`cognitive-max/cap.verify.ui-green`). Both must
+# pass before the adversarial review. This is what lets praxec fully verify
+# a feature like SP3 that has both a Rust backend and a TypeScript frontend.
+#
+# State-shape note (mirrors flow.add-feature): guards are evaluated BEFORE the
+# transition's executor fires, so each "execute + branch" splits into two
+# states — the first runs the capability, the second branches on its output.
+#
+# CROSS-REPO REFERENCES (load-test pending): the base-repo capabilities are
+# referenced by their namespace-prefixed definitionId (`cognitive/cap.*`). The
+# local UI gate is `cognitive-max/cap.verify.ui-green`. This composition assumes
+# the gateway is configured with BOTH repos; the cross-namespace executor
+# resolution must be confirmed on first load (see docs/spec-p1-ui-verify-pack.md).
+
+workflows:
+  flow.add-ui-feature:
+    description: |
+      Full-stack plan-driven feature delivery: draft -> vet -> signoff -> TDD ->
+      gap reconciliation -> verify (cargo-green THEN ui-green) -> review -> PR.
+    inputs:
+      feature_brief: { type: string, required: true }
+      base_ref:      { type: string, default: main }
+      ui_path:       { type: string, default: ui }
+      lexicon:       { type: object, default: {} }
+    initialState: drafting_plan
+    states:
+      drafting_plan:
+        transitions:
+          draft:
+            target: vetting_plan
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.plan.draft
+              use:
+                inputs:
+                  brief:   "$.context.feature_brief"
+                  lexicon: "$.context.lexicon"
+                outputs:
+                  "$.context.draft_plan":      plan
+                  "$.context.draft_artifacts": artifacts
+
+      vetting_plan:
+        transitions:
+          vet:
+            target: vetted_plan
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.plan.vet
+              use:
+                inputs:
+                  plan:           "$.context.draft_plan"
+                  max_iterations: 3
+                outputs:
+                  "$.context.vet_verdict":  verdict
+                  "$.context.vet_findings": findings
+
+      vetted_plan:
+        transitions:
+          advance:
+            target: awaiting_signoff
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.vet_verdict == 'pass'"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.vet_verdict == 'fail'"
+
+      awaiting_signoff:
+        transitions:
+          signoff:
+            target: signoff_received
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.gate.human-signoff
+              use:
+                inputs:
+                  artifact: "$.context.draft_plan"
+                  prompt:   "Approve plan for implementation?"
+                outputs:
+                  "$.context.signoff_decision": decision
+
+      signoff_received:
+        transitions:
+          advance:
+            target: implementing
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.signoff_decision == 'approved'"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.signoff_decision == 'rejected'"
+
+      implementing:
+        transitions:
+          tdd_loop:
+            target: tracking_gaps
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.implement.tdd-loop
+              use:
+                inputs:
+                  plan:        "$.context.draft_plan"
+                  scope_paths: "$.context.draft_plan"
+                outputs:
+                  "$.context.implementation_result": result
+                  "$.context.tests_added":           tests_added
+
+      tracking_gaps:
+        transitions:
+          track:
+            target: verifying_backend
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.plan.track-gaps
+              use:
+                inputs:
+                  plan:   "$.context.draft_plan"
+                  result: "$.context.implementation_result"
+                outputs:
+                  "$.context.gap_report": report
+
+      verifying_backend:
+        transitions:
+          verify:
+            target: backend_verified
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.verify.workspace-green
+              use:
+                inputs:  {}
+                outputs:
+                  "$.context.verify_ok":      ok
+                  "$.context.verify_summary": summary
+
+      backend_verified:
+        transitions:
+          advance:
+            target: verifying_ui
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.verify_ok == true"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.verify_ok == false"
+
+      verifying_ui:
+        transitions:
+          verify_ui:
+            target: ui_verified
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive-max/cap.verify.ui-green
+              use:
+                inputs:
+                  ui_path: "$.context.ui_path"
+                outputs:
+                  "$.context.ui_verify_ok":           passed
+                  "$.context.ui_verify_failed_stage": failed_stage
+
+      ui_verified:
+        transitions:
+          advance:
+            target: reviewing
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.ui_verify_ok == true"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.ui_verify_ok == false"
+
+      reviewing:
+        transitions:
+          review:
+            target: reviewed
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.review.adversarial
+              use:
+                inputs:
+                  diff_against: "$.context.base_ref"
+                outputs:
+                  "$.context.review_verdict":  verdict
+                  "$.context.review_findings": findings
+
+      reviewed:
+        transitions:
+          advance:
+            target: opening_pr
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.review_verdict == 'approved'"
+          abort:
+            target: failed
+            actor: deterministic
+            guards:
+              - kind: expr
+                expr: "$.context.review_verdict == 'rejected'"
+
+      opening_pr:
+        transitions:
+          open:
+            target: done
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive/cap.coordinate.pr-open
+              use:
+                inputs:
+                  title: "$.context.feature_brief"
+                  body:  "$.context.feature_brief"
+                  base:  "$.context.base_ref"
+                outputs:
+                  "$.context.pr_url":    url
+                  "$.context.pr_number": pr_number
+
+      done:
+        terminal: true
+
+      failed:
+        terminal: true

@@ -1,0 +1,74 @@
+# skills/implement.tdd.behavioral-discipline.yaml
+#
+# LLM-guidance fragment (verb `implement`) — the MAX-tier TDD discipline: tests
+# as atomic, declarative behavioral assertions, plus testable-architecture
+# seams. Deepens the base repo's `cognitive/implement.tdd.discipline`. Injected
+# into implement states. Pairs with `plan.spec.incose-ears` (the behavior comes from
+# EARS statements) and `plan.nfr.ilities-and-distributed` (NFR tests).
+skills:
+  implement.tdd.behavioral-discipline:
+    verb: implement
+    lifecycle: stable
+    source: cognitive-architectures-max
+    body: |
+      # TDD — atomic, declarative, behavioral
+
+      Tests encode BEHAVIOR (observable contract), not implementation. Write the
+      failing test first, watch it fail for the right reason, then the minimal
+      code to pass. Refactor under green.
+
+      ## One assertion per test
+      - Each test asserts exactly ONE behavioral fact and is named for it
+        (`completes_via_fallback_when_primary_429s`, not `test_completion`).
+      - "One assertion" = one logical claim. A few `expect`s that together pin
+        one fact are fine; asserting two independent behaviors in one test is
+        not — split them so a failure names the broken behavior precisely.
+      - **Declarative:** arrange → act → assert, with the assert reading like a
+        spec sentence. No branching/looping logic in the test body that could
+        itself be wrong; data-drive instead (below).
+      - No assertion-free tests (a test that only runs code asserts nothing —
+        it's a coverage lie). No snapshot-as-only-assertion for logic.
+
+      ## The test pyramid, precisely
+      - **Unit test:** one unit of code, all collaborators replaced by test
+        doubles. Fast, deterministic, isolates one behavior.
+      - **Unit-integration test:** exactly TWO units exercised together (the
+        integration seam between them), with EVERYTHING ELSE mocked. This
+        isolates and exercises a single integration — the contract between two
+        collaborators — without dragging in the whole system. Use it to prove
+        two units actually compose (the seam unit tests can't see).
+      - **Integration/E2E:** real subsystems; few, for the critical paths.
+      Prefer the lowest level that can prove the behavior.
+
+      ## Testable architecture (build the seams)
+      - **Dependency inversion at the boundary:** units depend on an interface,
+        not a concrete client → tests inject a double. Hard-to-test code is a
+        design smell; fix the seam, don't reach for heavy machinery.
+      - **Doubles, chosen deliberately:** *stub* (canned answers), *mock*
+        (asserts the interaction), *fake* (a working lightweight impl, e.g.
+        in-memory store), *emulator* (a real-protocol local server for an
+        external service). Use a fake/emulator over a mock when the contract is
+        rich (an in-memory store beats mocking every query); use a mock when the
+        interaction itself is the behavior under test.
+      - **Determinism seams:** inject the clock, randomness, and ids — never
+        call `now()`/`random()` directly in code under test, so tests pin time.
+
+      ## Data-driven testing
+      - Parameterize one behavior across a table of (input → expected) cases
+        rather than copy-pasting tests; the table is the spec. Each row is still
+        one behavioral assertion. Cover boundaries, the empty/zero case, and the
+        negative/unwanted-behavior cases (from the EARS unwanted-behavior reqs).
+      - Keep a golden corpus for behaviors with many cases; calibrate thresholds
+        against it.
+
+      ## NFR tests
+      Non-functional requirements get tests too (see `plan.nfr.ilities-and-distributed`):
+      a timeout/deadline test, a retry/backoff test, a concurrency/no-double-
+      claim test, a degradation/partial-tolerance test, a no-panic/fail-closed
+      test. An NFR with no test is an aspiration, not a requirement.
+
+      ## Output
+      For each behavior: the failing test first (named for the behavior, one
+      assertion, the right double at the right level), the run showing it fails
+      for the right reason, the minimal impl, green, then refactor. Flag any
+      code you cannot test without a seam and add the seam.

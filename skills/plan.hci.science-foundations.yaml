@@ -1,0 +1,99 @@
+# skills/plan.hci.science-foundations.yaml
+#
+# LLM-guidance fragment (verb `plan`) — the scientific knowledge base of HCI:
+# perception, attention, memory, decision-making, motivation, and interaction
+# principles, with the DESIGN IMPLICATION of each. The "covers the science"
+# half of the optimal UI workflow; pairs with the JTBD research (the "for THESE
+# users" half), `implement.atomic.component-design`, and the design system. Injected into
+# the design state of `flow.ui.optimal`.
+skills:
+  plan.hci.science-foundations:
+    verb: plan
+    lifecycle: stable
+    source: cognitive-architectures-max
+    body: |
+      # HCI science — foundations, with design implications
+
+      Design the interface from how humans actually perceive, attend, remember,
+      and decide — then validate against the intended users' researched job.
+      Each law below carries its DESIGN IMPLICATION; apply the ones the screen's
+      job invokes (don't cargo-cult all of them).
+
+      ## Perception
+      - **Gestalt** (proximity, similarity, common region, continuity, closure):
+        grouping is read from layout, not labels → group by proximity/region;
+        related controls sit together; unrelated ones don't.
+      - **Pre-attentive attributes** (color, size, position, orientation) are
+        processed in <250ms → encode the ONE thing that matters most pre-
+        attentively; don't compete (the ≤10%-saturated-color rule).
+      - **Visual hierarchy / contrast**: size + weight + color + whitespace set
+        reading order → the most decision-relevant element is the most salient.
+
+      ## Attention
+      - **Selective attention / change blindness**: users miss un-cued changes →
+        announce state changes explicitly (the "since you were gone" need);
+        never rely on a silent update.
+      - **Signal detection**: too many alerts → alert blindness → reserve strong
+        signals for things that need action; everything saturated = nothing is.
+
+      ## Memory & cognition
+      - **Working memory ~4 chunks**: don't make users hold state in their head →
+        keep context on screen; chunk information; progressive disclosure.
+      - **Recognition over recall**: show options/values, don't make users
+        remember them → menus over blank fields; visible provenance over "trust
+        me."
+      - **Cognitive load theory** (intrinsic / extraneous / germane): cut
+        extraneous load (chrome, theatre, dense config) so capacity goes to the
+        decision (feature-fatigue research: 30–50% of features carry marginal/
+        negative value).
+
+      ## Decision-making
+      - **Hick's law**: decision time grows with the number/complexity of
+        choices → reduce and order options; default + progressive reveal.
+      - **Fitts's law**: time-to-target ∝ distance/size → primary actions are
+        large and near; destructive ones are not adjacent to common ones.
+      - **Dual-process (System 1/2) + biases** (anchoring, framing, confirmation):
+        the first number/frame anchors → present honestly, surface
+        disconfirming evidence, never frame to manipulate (the falsification-
+        first / anti-confirmation tenet).
+      - **Peak-end & first impressions**: judgments form fast and from peaks/
+        ends → the at-a-glance state + the resolution moment matter most.
+
+      ## Motivation (why users engage and persist)
+      - **Self-Determination Theory** (autonomy, competence, relatedness):
+        support user control (autonomy), make progress/mastery legible
+        (competence), respect their context (relatedness) → honest agency, not
+        dark patterns.
+      - **Fogg Behavior Model** (Behavior = Motivation × Ability × Prompt):
+        to drive an action, raise ability (make it easy) and prompt at the right
+        moment; don't rely on motivation alone.
+      - **Flow**: match challenge to skill; remove friction on the core path.
+
+      ## Interaction principles
+      - **Norman**: affordances + signifiers (what can I do, and how do I know),
+        feedback (every action acknowledged, settled — no fake/animated
+        authority), mapping (controls map to effects), constraints (prevent
+        errors), a clear conceptual model. Poka-yoke: make the wrong thing hard.
+      - **Nielsen heuristics**: visibility of system status, match to the real
+        world, user control/undo, consistency, error prevention, recognition>
+        recall, flexibility, minimalist design, good error messages, help.
+      - **Trust & credibility** (load-bearing for evidence products): provenance
+        on every claim, calibrated/honest confidence, no theatre — credibility
+        is earned by surviving scrutiny, not asserted.
+
+      ## Accessibility (non-negotiable)
+      WCAG: perceivable (contrast, non-color cues, alt text), operable (keyboard,
+      focus order, target size), understandable, robust (semantics/ARIA). Design
+      for the widest range; accessibility improves usability for everyone.
+
+      ## Validate, don't assert
+      The science narrows the design space; the INTENDED USERS' researched JTBD
+      decides within it. Tie every interaction choice to a user job + the law it
+      serves, and plan the usability measure (task success, time-on-task,
+      error rate, SUS) that would falsify it. Corroborate by testing with users.
+
+      ## Output
+      For the screen: the interaction design (hierarchy, grouping, primary
+      action, state/feedback model, error prevention), each choice tagged with
+      the HCI law + the JTBD step it serves, the accessibility plan, and the
+      usability measure that would prove/disprove it.
