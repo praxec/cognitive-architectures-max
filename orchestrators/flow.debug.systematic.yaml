@@ -195,6 +195,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.review_verdict == 'rejected'"
+          # V23 poka-yoke: routes an out-of-domain verdict (e.g. the review
+          # enum's 'needs-revision') deliberately to failed, not a fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       opening_pr:
         transitions:

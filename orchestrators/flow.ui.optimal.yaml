@@ -79,8 +79,12 @@ workflows:
       # fmeca_round (LoopGuard); on exhaustion it ESCALATES to the existing human
       # signoff with the residual risk (never silent). Reusable units: the caps
       # cognitive/cap.review.fmeca + cognitive/cap.refactor.mitigate-risks and the
-      # skills refactor.poka-yoke + refactor.triz. The engine forbids flow-nests-
-      # flow (V11), so the loop is INLINED; see base CA docs/spec-fmeca-converge.md
+      # skills refactor.poka-yoke + refactor.triz. The loop is INLINED here as a
+      # deliberate simplicity choice (one flow, one file). Note (0.0.14): the old
+      # V11 "a flow may not invoke another flow" ban is RELAXED — flows may now
+      # nest flows via `kind: workflow` (bounded at runtime by MAX_WORKFLOW_DEPTH
+      # = 10), so this loop COULD instead be extracted into a reusable sub-flow
+      # (e.g. `flow.derisk`) and invoked. See base CA docs/spec-fmeca-converge.md
       # for the pattern to drop into other flows.
       design_qa:
         # ASSESS: customer-alignment FMECA on the current design. The cognitive-
@@ -179,6 +183,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.signoff_decision == 'rejected'"
+          # V23 poka-yoke: unguarded default routes any out-of-domain decision
+          # deliberately to failed instead of a silent fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       building:
         # Build with the craft injected: behavioral TDD, atomic decomposition,
@@ -264,6 +273,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.react_verdict == 'rejected'"
+          # V23 poka-yoke: routes an out-of-domain verdict (e.g. the review
+          # enum's 'needs-revision') deliberately to failed, not a fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       reviewing_adversarial:
         transitions:
@@ -294,6 +308,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.review_verdict == 'rejected'"
+          # V23 poka-yoke: routes an out-of-domain verdict (e.g. the review
+          # enum's 'needs-revision') deliberately to failed, not a fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       opening_pr:
         transitions:

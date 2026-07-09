@@ -14,9 +14,9 @@ description: |
   verified through praxec, dogfooding praxec and its tools.
 
   Leverages:
-    - intentos  (intent / JTBD modeling)         — connections/intentos.yaml
-    - structureos (structural hygiene)           — base repo connection
+    - structureos (structural hygiene)           — connections/structureos.yaml (this repo)
     - elicitation (falsification-based discovery) — base repo connection
+    - intentos  (intent / JTBD modeling)         — planned (connection not yet shipped)
 
   Operators reference BOTH repos from their gateway config:
 

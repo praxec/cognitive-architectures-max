@@ -76,6 +76,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.vet_verdict == 'fail'"
+          # V23 poka-yoke: unguarded default routes any out-of-domain verdict
+          # deliberately to failed instead of a silent fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       awaiting_signoff:
         transitions:
@@ -106,6 +111,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.signoff_decision == 'rejected'"
+          # V23 poka-yoke: unguarded default routes any out-of-domain decision
+          # deliberately to failed instead of a silent fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       implementing:
         transitions:
@@ -226,6 +236,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.review_verdict == 'rejected'"
+          # V23 poka-yoke: routes an out-of-domain verdict (e.g. the review
+          # enum's 'needs-revision') deliberately to failed, not a fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       opening_pr:
         transitions:
