@@ -3,8 +3,8 @@
 # Full-stack feature delivery — the UX-factory variant of the base repo's
 # `cognitive/flow.add-feature`. Identical plan -> vet -> signoff -> TDD ->
 # gap-track pipeline, but the verify phase runs TWO deterministic gates in
-# sequence: the backend cargo gate (`cognitive/cap.verify.workspace-green`)
-# THEN the frontend UI gate (`cognitive-max/cap.verify.ui-green`). Both must
+# sequence: the backend cargo gate (`cognitive/cap.verify.rust`)
+# THEN the frontend UI gate (`cognitive-max/cap.verify.ts`). Both must
 # pass before the adversarial review. This is what lets praxec fully verify
 # a feature like SP3 that has both a Rust backend and a TypeScript frontend.
 #
@@ -14,7 +14,7 @@
 #
 # CROSS-REPO REFERENCES (load-test pending): the base-repo capabilities are
 # referenced by their namespace-prefixed definitionId (`cognitive/cap.*`). The
-# local UI gate is `cognitive-max/cap.verify.ui-green`. This composition assumes
+# local UI gate is `cognitive-max/cap.verify.ts`. This composition assumes
 # the gateway is configured with BOTH repos; the cross-namespace executor
 # resolution must be confirmed on first load (see docs/spec-p1-ui-verify-pack.md).
 
@@ -23,11 +23,38 @@ workflows:
     description: |
       Full-stack plan-driven feature delivery: draft -> vet -> signoff -> TDD ->
       gap reconciliation -> verify (cargo-green THEN ui-green) -> review -> PR.
+    # Spec A §5 — this flow's `hop_slot:` transitions resolve against the `ts`
+    # stack, so the frontend gate wires `cognitive-max/cap.verify.ts`. The
+    # BACKEND cargo gate stays an explicit `cognitive/cap.verify.rust` executor:
+    # a workflow has ONE stack, and this full-stack flow needs both a rust and a
+    # ts verify — only the (primary, UI) gate becomes a hop_slot.
+    stack: ts
     inputs:
       feature_brief: { type: string, required: true }
       base_ref:      { type: string, default: main }
       ui_path:       { type: string, default: ui }
       lexicon:       { type: object, default: {} }
+    # Declaring the `verify` HOP slot (hop_slot injection) puts this flow in
+    # strict-blackboard mode: every $.context slot a guard READS must be declared
+    # (SPEC §11). The engine additionally injects `verify` (canonical verifyOut).
+    blackboard:
+      feature_brief:         { type: string }
+      base_ref:              { type: string }
+      ui_path:               { type: string }
+      lexicon:               { type: object }
+      draft_plan:            {}
+      draft_artifacts:       {}
+      vet_verdict:           { type: string }
+      vet_findings:          {}
+      signoff_decision:      { type: string }
+      implementation_result: {}
+      tests_added:           {}
+      gap_report:            {}
+      backend_verify:        {}
+      review_verdict:        { type: string }
+      review_findings:       {}
+      pr_number:             {}
+      pr_url:                { type: string }
     initialState: drafting_plan
     states:
       drafting_plan:
@@ -76,6 +103,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.vet_verdict == 'fail'"
+          # V23 poka-yoke: unguarded default routes any out-of-domain verdict
+          # deliberately to failed instead of a silent fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       awaiting_signoff:
         transitions:
@@ -106,6 +138,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.signoff_decision == 'rejected'"
+          # V23 poka-yoke: unguarded default routes any out-of-domain decision
+          # deliberately to failed instead of a silent fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       implementing:
         transitions:
@@ -139,18 +176,20 @@ workflows:
                   "$.context.gap_report": report
 
       verifying_backend:
+        # The backend (rust) gate stays an EXPLICIT cap executor — a workflow has
+        # one stack (ts here), so only the UI gate can be a hop_slot. cap.verify.rust
+        # now emits the canonical verifyOut; branch on `.status`.
         transitions:
           verify:
             target: backend_verified
             actor: deterministic
             executor:
               kind: workflow
-              definitionId: cognitive/cap.verify.workspace-green
+              definitionId: cognitive/cap.verify.rust
               use:
                 inputs:  {}
                 outputs:
-                  "$.context.verify_ok":      ok
-                  "$.context.verify_summary": summary
+                  "$.context.backend_verify": verify
 
       backend_verified:
         transitions:
@@ -159,28 +198,20 @@ workflows:
             actor: deterministic
             guards:
               - kind: expr
-                expr: "$.context.verify_ok == true"
+                expr: "$.context.backend_verify.status == 'pass'"
           abort:
             target: failed
             actor: deterministic
-            guards:
-              - kind: expr
-                expr: "$.context.verify_ok == false"
 
       verifying_ui:
         transitions:
+          # First-class specialization slot (Spec A §3.1). No executor: the
+          # engine injects verifyIn/verifyOut and wires the resolved
+          # cap.verify.ts (stack: ts). verifyOut lands at $.context.verify.
           verify_ui:
             target: ui_verified
             actor: deterministic
-            executor:
-              kind: workflow
-              definitionId: cognitive-max/cap.verify.ui-green
-              use:
-                inputs:
-                  ui_path: "$.context.ui_path"
-                outputs:
-                  "$.context.ui_verify_ok":           passed
-                  "$.context.ui_verify_failed_stage": failed_stage
+            hop_slot: verify
 
       ui_verified:
         transitions:
@@ -189,13 +220,10 @@ workflows:
             actor: deterministic
             guards:
               - kind: expr
-                expr: "$.context.ui_verify_ok == true"
+                expr: "$.context.verify.status == 'pass'"
           abort:
             target: failed
             actor: deterministic
-            guards:
-              - kind: expr
-                expr: "$.context.ui_verify_ok == false"
 
       reviewing:
         transitions:
@@ -226,6 +254,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.review_verdict == 'rejected'"
+          # V23 poka-yoke: routes an out-of-domain verdict (e.g. the review
+          # enum's 'needs-revision') deliberately to failed, not a fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       opening_pr:
         transitions:

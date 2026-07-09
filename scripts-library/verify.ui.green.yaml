@@ -6,24 +6,49 @@ scripts:
     source: cognitive-architectures-max
     body: |
       #!/usr/bin/env bash
-      # UI green gate: install, typecheck, build must all pass for the frontend.
-      # The TypeScript/Vite complement to verify.workspace.green (cargo). The ui
-      # directory is passed as $1. The target project (simuli/ui) has NO eslint
-      # configured — its own `npm run build` is `tsc --noEmit && vite build` — so
-      # the honest gate is install -> tsc --noEmit -> vite build. (An eslint stage
-      # can be added here once the UI project adopts an eslint config.)
-      # Exits 0 only if all stages pass; emits a JSON summary on stdout.
-      set -euo pipefail
-      ui_dir="${1:?ui_path required (path to the frontend dir, e.g. ui)}"
-      cd "$ui_dir"
+      # TypeScript/Vite UI correctness gate (npm ci + tsc --noEmit + vite build),
+      # emitted as the canonical HOP `verifyOut` shape
+      # (praxec://hop#/$defs/verifyOut): { status, summary, criteria[], findings[],
+      # provenance }. The frontend complement to the base repo's rust gate.
+      #
+      # `status` = "pass" iff every criterion.met is true, else "fail". Exit code
+      # mirrors status (0 pass / 1 fail); slot consumers (cap.verify.ts via
+      # hop_slot) read the full verifyOut from `$.output.json` — that cap sets
+      # `treatNonZeroAsFailure: false` so a `status: fail` verdict is CAPTURED.
+      #
+      # Optional positional $1 = the frontend directory (the verifyIn `cwd` the
+      # slot forwards); defaults to the process PWD when absent. NOTE: the target
+      # project (e.g. simuli/ui) has NO eslint configured — its own `npm run
+      # build` is `tsc --noEmit && vite build` — so the honest gate is install ->
+      # typecheck -> build. An eslint stage can be added once the UI adopts one.
+      set -uo pipefail
 
-      stage_fail() {
-        echo "{\"passed\": false, \"failed_stage\": \"$1\", \"subject\": \"${PRAXEC_SCRIPT_SUBJECT:-verify.ui.green}\"}"
-        exit 1
-      }
+      cwd="${1:-$PWD}"
+      cd "$cwd" 2>/dev/null || true
 
-      npm ci >&2            || stage_fail "install"
-      npx tsc --noEmit >&2  || stage_fail "typecheck"
-      npx vite build >&2    || stage_fail "build"
+      crit() { printf '{"id":"%s","met":%s,"evidence":"%s"}' "$1" "$2" "$3"; }
 
-      echo "{\"passed\": true, \"stages\": [\"install\", \"typecheck\", \"build\"], \"subject\": \"${PRAXEC_SCRIPT_SUBJECT:-verify.ui.green}\"}"
+      STATUS="pass"
+
+      if npm ci >&2; then
+        c_install=$(crit install true "npm ci clean")
+      else
+        c_install=$(crit install false "npm ci failed"); STATUS="fail"
+      fi
+
+      if npx tsc --noEmit >&2; then
+        c_type=$(crit typecheck true "tsc --noEmit clean")
+      else
+        c_type=$(crit typecheck false "tsc --noEmit reported type errors"); STATUS="fail"
+      fi
+
+      if npx vite build >&2; then
+        c_build=$(crit build true "vite build succeeded")
+      else
+        c_build=$(crit build false "vite build failed"); STATUS="fail"
+      fi
+
+      printf '{"status":"%s","summary":"npm ci + tsc --noEmit + vite build: %s","criteria":[%s,%s,%s],"findings":[],"provenance":{"stack":"language:ts","source":"pack"}}\n' \
+        "$STATUS" "$STATUS" "$c_install" "$c_type" "$c_build"
+
+      [ "$STATUS" = "pass" ] && exit 0 || exit 1
