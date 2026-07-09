@@ -15,11 +15,26 @@ workflows:
       Decompose a target component into atoms/molecules/organisms/templates:
       analyze structure (structureos) -> decomposition plan -> human signoff ->
       behavior-preserving refactor -> ui-green verify -> React-antipattern review.
+    # Spec A §5 — a ts/vite pack; the UI verify gate is now a `hop_slot: verify`
+    # resolving to `cognitive-max/cap.verify.ts`.
+    stack: ts
     inputs:
       target_path: { type: string, required: true }   # the component/dir to decompose
       ui_path:     { type: string, default: ui }
       base_ref:    { type: string, default: main }
       lexicon:     { type: object, default: {} }
+    # hop_slot injection → strict blackboard mode: every guard-read $.context slot
+    # must be declared (SPEC §11). `verify` is engine-injected (verifyOut).
+    blackboard:
+      target_path:        { type: string }
+      ui_path:            { type: string }
+      base_ref:           { type: string }
+      lexicon:            { type: object }
+      decomposition_plan: {}
+      signoff_decision:   { type: string }
+      refactor_result:    {}
+      review_verdict:     { type: string }
+      review_findings:    {}
     initialState: planning_decomposition
     states:
       planning_decomposition:
@@ -97,18 +112,12 @@ workflows:
 
       verifying_ui:
         transitions:
+          # First-class specialization slot (Spec A §3.1): the engine injects
+          # verifyIn/verifyOut and wires the resolved cap.verify.ts (stack: ts).
           verify_ui:
             target: ui_verified
             actor: deterministic
-            executor:
-              kind: workflow
-              definitionId: cognitive-max/cap.verify.ui-green
-              use:
-                inputs:
-                  ui_path: "$.context.ui_path"
-                outputs:
-                  "$.context.ui_verify_ok":           passed
-                  "$.context.ui_verify_failed_stage": failed_stage
+            hop_slot: verify
 
       ui_verified:
         transitions:
@@ -117,13 +126,10 @@ workflows:
             actor: deterministic
             guards:
               - kind: expr
-                expr: "$.context.ui_verify_ok == true"
+                expr: "$.context.verify.status == 'pass'"
           abort:
             target: failed
             actor: deterministic
-            guards:
-              - kind: expr
-                expr: "$.context.ui_verify_ok == false"
 
       reviewing:
         transitions:

@@ -25,7 +25,7 @@ description: |
         - path: /path/to/cognitive-architectures-max   # this — UX factory
 
   Every loaded definitionId is namespace-prefixed `cognitive-max/<id>`
-  (e.g. `cognitive-max/flow.add-ui-feature`, `cognitive-max/cap.verify.ui-green`).
+  (e.g. `cognitive-max/flow.add-ui-feature`, `cognitive-max/cap.verify.ts`).
 
 # Mirrors the base repo's layout (the engine field for orchestrators is `flows`;
 # the directory stays `orchestrators/`). Connections stay outside the manifest —
