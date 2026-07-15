@@ -1,0 +1,29 @@
+# examples/praxec-cognitive-max.yaml
+#
+# Smoke-test gateway config for the cognitive-architectures-max overlay.
+# The overlay composes against the base cognitive-architectures repo, so
+# both are mounted (base first). Paths are resolved relative to THIS file,
+# assuming the two repos sit side by side:
+#
+#     working/
+#       cognitive-architectures/          <- base
+#       cognitive-architectures-max/       <- this overlay
+#
+# Usage (from the repo root):
+#   praxec check --config examples/praxec-cognitive-max.yaml
+#
+# The overlay's manifest declares `namespace: cognitive-max`, so its ids
+# surface under `cognitive-max/<id>` (e.g. `cognitive-max/flow.refactor.god-file`).
+#
+# PRIORITY: the overlay intentionally supersedes some base caps (e.g. its
+# `cap.verify.ts` provides a richer `hop_slot: verify`). When a hop_slot is
+# provided by both repos, the engine refuses to guess at equal priority
+# (HOP_SLOT_AMBIGUOUS). Give the overlay a higher `priority:` so it wins — this
+# is the required pattern for any operator mounting the premium pack over base.
+
+version: "1.0.0"
+
+repos:
+  - path: ../../cognitive-architectures   # base pack (overlay composes against it), priority 0
+  - path: ..                              # this overlay
+    priority: 10                          # wins hop_slot collisions with base
