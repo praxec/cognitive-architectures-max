@@ -1,0 +1,48 @@
+# capabilities/cap.verify.ts.yaml
+#
+# The `verify` specialization slot cap for `stack: ts` (Spec A §3.1). A
+# `hop_slot: verify` transition in a `stack: ts` workflow resolves to THIS cap
+# (`cognitive-max/cap.verify.ts`), and the engine injects the canonical
+# verifyIn/verifyOut contracts around it (praxec://hop). Renamed from the former
+# `cap.verify.ui-green` and re-shaped to emit the full verifyOut HOP.
+#
+# Binds to the `verify.ui.green` script (npm ci + tsc --noEmit + vite build),
+# which now emits the verifyOut shape on stdout. `treatNonZeroAsFailure: false`
+# lets a `status: fail` verdict be captured as output (tri-state gate) instead of
+# collapsing to a transition error.
+#
+# CONTRACT NOTE: verifyIn's only required input is `cwd`, so the hop_slot resolver
+# forwards ONLY `cwd` (from `$.arguments.cwd`). A frontend living in a subdir
+# (the old `ui_path`) can no longer be threaded through the slot's fixed wiring;
+# `cwd` defaults to PWD. Run praxec from the frontend dir, or pass `cwd` as the
+# actor argument. (See the hop_slot ui_path→cwd gap in the alignment report.)
+
+workflows:
+  cap.verify.ts:
+    verb: verify
+    lifecycle: experimental
+    description: >
+      TypeScript/Vite UI correctness gate: npm ci + tsc --noEmit + vite build,
+      emitted as the canonical HOP verifyOut. The verify slot cap for stack: ts.
+    snippet:
+      inputs:
+        cwd: { type: string }
+      outputs:
+        verify: { $ref: "praxec://hop#/$defs/verifyOut" }
+    initialState: ready
+    states:
+      ready:
+        goal: Run the TypeScript/Vite UI gate; emit verifyOut.
+        transitions:
+          run:
+            target: done
+            actor: deterministic
+            executor:
+              kind: script
+              subject: verify.ui.green
+              treatNonZeroAsFailure: false
+              args:
+                - "$.workflow.input.cwd"
+            output:
+              verify: "$.output.json"
+      done: { terminal: true }

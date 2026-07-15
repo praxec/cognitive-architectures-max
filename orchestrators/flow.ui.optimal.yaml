@@ -27,18 +27,42 @@ workflows:
       atomic/BFF design -> customer-alignment FMECA -> signoff -> TDD/story-
       driven build -> ui-green verify -> React-antipattern review -> adversarial
       review -> PR. Iterated to perfection via grounded UX measurement.
+    # Spec A §5 — a ts/vite pack; the UI verify gate is now a `hop_slot: verify`
+    # resolving to `cognitive-max/cap.verify.ts`.
+    stack: ts
     inputs:
       feature_brief: { type: string, required: true }
       ui_path:       { type: string, default: ui }
       base_ref:      { type: string, default: main }
       lexicon:       { type: object, default: {} }
+    # hop_slot injection puts this flow in strict-blackboard mode, so every
+    # guard-read $.context slot must be declared here (SPEC §11). `verify` is
+    # engine-injected (verifyOut). fmeca_round is ALSO seeded via initialContext
+    # below (a declared slot does not seed a value — input defaults don't reliably
+    # seed $.context, so the counter start still comes from initialContext).
+    blackboard:
+      feature_brief:         { type: string }
+      ui_path:               { type: string }
+      base_ref:              { type: string }
+      lexicon:               { type: object }
+      design_plan:           {}
+      fmeca_round:           {}
+      fmeca_ready:           {}
+      fmeca_blockers:        {}
+      fmeca_risk_ranking:    {}
+      signoff_decision:      { type: string }
+      implementation_result: {}
+      react_verdict:         { type: string }
+      react_findings:        {}
+      review_verdict:        { type: string }
+      review_findings:       {}
+      pr_number:             {}
+      pr_url:                { type: string }
     # FMECA-convergence round counter (LoopGuard bound for design_qa_gate).
     # MUST be seeded via initialContext, not an input default: input defaults do
     # NOT reliably seed $.context (a run with only feature_brief left
     # fmeca_round=None, so every gate guard `< 3` / `>= 3` was false and the gate
-    # had no actionable move). No `blackboard:` block — declaring one would force
-    # every context slot to be declared there (warnings); initialContext seeds
-    # the counter on its own.
+    # had no actionable move).
     initialContext:
       fmeca_round: 0
     # ORCHESTRATE-DRIVE FIX: a flow is orchestrate-drivable only if it declares
@@ -79,8 +103,12 @@ workflows:
       # fmeca_round (LoopGuard); on exhaustion it ESCALATES to the existing human
       # signoff with the residual risk (never silent). Reusable units: the caps
       # cognitive/cap.review.fmeca + cognitive/cap.refactor.mitigate-risks and the
-      # skills refactor.poka-yoke + refactor.triz. The engine forbids flow-nests-
-      # flow (V11), so the loop is INLINED; see base CA docs/spec-fmeca-converge.md
+      # skills refactor.poka-yoke + refactor.triz. The loop is INLINED here as a
+      # deliberate simplicity choice (one flow, one file). Note (0.0.14): the old
+      # V11 "a flow may not invoke another flow" ban is RELAXED — flows may now
+      # nest flows via `kind: workflow` (bounded at runtime by MAX_WORKFLOW_DEPTH
+      # = 10), so this loop COULD instead be extracted into a reusable sub-flow
+      # (e.g. `flow.derisk`) and invoked. See base CA docs/spec-fmeca-converge.md
       # for the pattern to drop into other flows.
       design_qa:
         # ASSESS: customer-alignment FMECA on the current design. The cognitive-
@@ -179,6 +207,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.signoff_decision == 'rejected'"
+          # V23 poka-yoke: unguarded default routes any out-of-domain decision
+          # deliberately to failed instead of a silent fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       building:
         # Build with the craft injected: behavioral TDD, atomic decomposition,
@@ -206,18 +239,12 @@ workflows:
 
       verifying_ui:
         transitions:
+          # First-class specialization slot (Spec A §3.1): the engine injects
+          # verifyIn/verifyOut and wires the resolved cap.verify.ts (stack: ts).
           verify_ui:
             target: ui_gate
             actor: deterministic
-            executor:
-              kind: workflow
-              definitionId: cognitive-max/cap.verify.ui-green
-              use:
-                inputs:
-                  ui_path: "$.context.ui_path"
-                outputs:
-                  "$.context.ui_verify_ok":           passed
-                  "$.context.ui_verify_failed_stage": failed_stage
+            hop_slot: verify
 
       ui_gate:
         transitions:
@@ -226,13 +253,10 @@ workflows:
             actor: deterministic
             guards:
               - kind: expr
-                expr: "$.context.ui_verify_ok == true"
+                expr: "$.context.verify.status == 'pass'"
           abort:
             target: failed
             actor: deterministic
-            guards:
-              - kind: expr
-                expr: "$.context.ui_verify_ok == false"
 
       reviewing_react:
         transitions:
@@ -264,6 +288,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.react_verdict == 'rejected'"
+          # V23 poka-yoke: routes an out-of-domain verdict (e.g. the review
+          # enum's 'needs-revision') deliberately to failed, not a fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       reviewing_adversarial:
         transitions:
@@ -294,6 +323,11 @@ workflows:
             guards:
               - kind: expr
                 expr: "$.context.review_verdict == 'rejected'"
+          # V23 poka-yoke: routes an out-of-domain verdict (e.g. the review
+          # enum's 'needs-revision') deliberately to failed, not a fall-through.
+          default:
+            target: failed
+            actor: deterministic
 
       opening_pr:
         transitions:

@@ -49,7 +49,6 @@ workflows:
       # The directory cargo runs in for the build gate AND the crate the fixup
       # agent edits — a workspace MEMBER dir, so verify.cargo.cwd scopes to it
       # (the god file lives under here, e.g. "crates/praxec-agents").
-      repo_path:   { type: string, required: true }
     initialState: scanning
     initialContext:
       # Literal action strings live here so the mcp `map:` can bind them as
@@ -187,7 +186,7 @@ workflows:
             executor:
               kind: script
               subject: verify.cargo.cwd
-              workingDirectory: "$.workflow.input.repo_path"
+              workingDirectory: "$.run.repo_root"
             output:
               build_passed:  "$.output.json.passed"
               build_summary: "$.output.json.summary"
