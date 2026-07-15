@@ -23,6 +23,13 @@
 
 version: "1.0.0"
 
+# `_writableRepos` (praxec 0.0.21+) — the repo(s) a run may operate on; every
+# run's ambient `$.run.repo_root` is sourced here. Point `root` at your target.
+praxec:
+  _writableRepos:
+    - root: "."
+      push: false
+
 repos:
   - path: ../../cognitive-architectures   # base pack (overlay composes against it), priority 0
   - path: ..                              # this overlay
