@@ -18,7 +18,10 @@ permissions:
 
 env:
   PRAXEC_VERSION: v0.0.23
-  CHECK_CONFIG: examples/praxec-cognitive-max.yaml
+  # This overlay composes against the base cognitive-architectures pack, so the
+  # check loads both. `ci-check.yaml` mounts the base from `./.ci-base` (checked
+  # out below) instead of the sibling path the example config assumes.
+  CHECK_CONFIG: ci-check.yaml
 
 jobs:
   check:
@@ -26,6 +29,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Checkout base pack (the overlay composes against it)
+        uses: actions/checkout@v4
+        with:
+          repository: praxec/cognitive-architectures
+          ref: dev
+          path: .ci-base
 
       - name: Cache praxec binary (per engine tag)
         id: cache-praxec
