@@ -17,7 +17,7 @@ permissions:
   contents: read
 
 env:
-  PRAXEC_VERSION: v0.0.23
+  PRAXEC_VERSION: v0.0.24
   # This overlay composes against the base cognitive-architectures pack, so the
   # check loads both. `ci-check.yaml` mounts the base from `./.ci-base` (checked
   # out below) instead of the sibling path the example config assumes.
