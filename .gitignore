@@ -12,3 +12,4 @@ workspace-manifest.json
 # StructureOS/FrontRails scratch — local tooling, not repo content
 .frontrails/
 .structureos/
+.ci-base/

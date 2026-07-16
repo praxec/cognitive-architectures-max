@@ -1,0 +1,19 @@
+# CI-only gateway config for the `praxec check` gate.
+#
+# The `examples/praxec-cognitive-max.yaml` config loads the base pack from a
+# SIBLING checkout (`../../cognitive-architectures`) — the local-dev layout,
+# which doesn't exist in a single-repo CI checkout. This config loads the base
+# from `./.ci-base`, where the workflow checks it out, so the overlay can be
+# validated against the base it composes on. Same repo set + priority order as
+# the example config; only the base path differs.
+version: "1.0.0"
+
+praxec:
+  _writableRepos:
+    - root: "."
+      push: false
+
+repos:
+  - path: ./.ci-base   # base cognitive-architectures pack (CI-checked-out), priority 0
+  - path: .            # this overlay
+    priority: 10       # wins hop_slot collisions with base (matches the example config)
