@@ -1,0 +1,90 @@
+# skills/skill.ux.analyze.gestalt.yaml
+#
+# MAX-tier principle lens for flow.ux.optimize's SURFACE×PRINCIPLE matrix:
+# Gestalt grouping + mental models / affordances / signifiers, split out of
+# plan.ux-design.expert §2/§4 and deepened. Loaded on the flow's
+# `analyzing_gestalt` agent leaf. Shares the grounding contract + structured
+# findings contract with its sibling skill.ux.analyze.* lenses.
+
+skills:
+  review.ux.analyze.gestalt:
+    verb: review
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      # Lens: Gestalt grouping & the persona's mental model
+
+      Your principle token: `gestalt`. Apply ONLY this lens, to ONLY the
+      surface you were handed ($.context.next_cell.surface), grounded in the
+      persona ($.context.persona: id, mental_model, jtbd_spine,
+      ancillary_journeys).
+
+      ## Mechanism (in depth)
+
+      Perception groups BEFORE cognition reads. The layout's visual grammar
+      makes a structural claim the persona trusts pre-attentively — when
+      that claim contradicts the actual behavior or the persona's mental
+      model, the wrong model wins silently. Hunt with:
+      - **Proximity**: whitespace groups elements — a control rendered
+        nearer to the WRONG cluster (a delete button hugging the save
+        group; a field visually inside the wrong fieldset) claims a false
+        relationship.
+      - **Similarity**: same style ⇒ same kind. Links styled as buttons,
+        one destructive action styled like its siblings, mixed icon
+        languages for one concept — each teaches a false equivalence.
+      - **Common region / enclosure**: cards and borders assert containment;
+        an element inside a card that acts globally (or vice versa) lies.
+      - **Continuity & figure-ground**: alignment implies sequence/flow;
+        reading order that contradicts tab/DOM order breaks the implied
+        path. Weak figure-ground contrast lets the step's primary action
+        dissolve into ground.
+      - **Closure**: truncation/pagination that visually completes (no cue
+        that more exists) makes the persona conclude the set is whole.
+      - **Affordances & signifiers**: what each element's appearance
+        PROMISES it can do vs what it does — flat text that is clickable,
+        raised chrome that is inert, drag handles that don't drag. The
+        persona's mental_model tells you which promises they will read.
+
+      ## Grounding requirement (persona/JTBD)
+
+      Walk the persona's jtbd_spine (and ancillary_journeys): at each named
+      step, ask what the VISUAL grammar claims about grouping/interactivity
+      and whether the claim matches both behavior and the persona's
+      mental_model. A grouping oddity that never misleads the walk is not a
+      defect.
+
+      ## Anti-false-positive guardrail
+
+      Every finding MUST cite: the surface id, the concrete element (and
+      file:line when you can localize the source), the named grouping
+      mechanism, and the CONCRETE cost at a NAMED jtbd step (the wrong
+      conclusion the persona draws and what it costs them). Aesthetic
+      preference with no false structural claim is a false positive — DROP
+      it. An empty findings array is a legal, honest result. Never score
+      criticality — severity_hint is advisory only.
+
+      ## Output contract (STRUCTURED)
+
+      Submit `findings`: an array of objects, each with EXACTLY this core:
+        { surface, principle: "gestalt", element, mechanism, jtbd_step,
+          user_cost, evidence, suggested_fix, severity_hint }
+      - `surface`       — the surface id you were handed.
+      - `element`       — the concrete UI element (label/selector), plus
+                          optional `file`/`line` when localized.
+      - `mechanism`     — the named mechanism ("Gestalt proximity: the
+                          org-wide toggle renders inside the project card's
+                          region").
+      - `jtbd_step`     — the named spine/journey step id.
+      - `user_cost`     — the concrete cost class narrated at that step
+                          (extra-decisions | missed-target | lost-place |
+                          wrong-model | overload | stalled-journey);
+                          usually wrong-model here.
+      - `evidence`      — the render/code citation backing it; never invent
+                          an element.
+      - `suggested_fix` — the smallest behavior-preserving change removing
+                          the violation.
+      - `severity_hint` — low | medium | high (advisory; the FMECA gate
+                          computes real criticality).
+      When a host capability supplies its own submission schema, keep these
+      as the semantic core and also map mechanism→root_cause and
+      suggested_fix→remediation.

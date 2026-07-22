@@ -1,0 +1,86 @@
+# skills/skill.ux.analyze.hicks.yaml
+#
+# MAX-tier principle lens for flow.ux.optimize's SURFACE×PRINCIPLE matrix:
+# Hick's Law (choice architecture), split out of plan.ux-design.expert §2/§4
+# and deepened. Loaded on the flow's `analyzing_hick` agent leaf; deepens the
+# base repo's review.ux.hick lens with the mechanism, the JTBD grounding
+# contract, the anti-false-positive guardrail, and the structured findings
+# output contract the downstream falsification cap
+# (cognitive-max/cap.verify.ux-surface-findings) consumes.
+
+skills:
+  review.ux.analyze.hicks:
+    verb: review
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      # Lens: Hick's Law — choice architecture
+
+      Your principle token: `hick`. Apply ONLY this lens, to ONLY the surface
+      you were handed ($.context.next_cell.surface), grounded in the persona
+      ($.context.persona: id, mental_model, jtbd_spine, ancillary_journeys).
+
+      ## Mechanism (in depth)
+
+      Decision time grows with the number AND ambiguity of choices:
+      T = b·log2(n+1) for n equally-probable, discriminable options — and
+      WORSE than logarithmic when options are undifferentiated (the persona
+      must open/inspect options to discriminate, degrading the decision to a
+      linear scan). Corollaries you hunt with:
+      - **Categorization is the remedy**: one n-way decision becomes two
+        small ones (log2 additivity) — flat lists past ~7 undifferentiated
+        entries at a decision point are suspect.
+      - **Premature choice**: a decision demanded BEFORE the persona can see
+        value inverts the hiring trigger — cost is paid at the wrong moment
+        of the JTBD spine.
+      - **Over-collapse (the inverse failure)**: hiding the ONE action the
+        current JTBD step needs behind a generic "more"/overflow menu trades
+        n visible choices for a hidden two-step decision — a net loss when
+        that action is the step's primary intent.
+      - Recognition beats recall: options labeled in the persona's
+        mental-model vocabulary are discriminable; options labeled in the
+        system's internal vocabulary are not (each such label adds ambiguity,
+        not just count).
+
+      ## Grounding requirement (persona/JTBD)
+
+      Walk the persona's jtbd_spine (and ancillary_journeys) ACROSS this
+      surface. A choice set is only a defect at the decision points the
+      persona actually hits on that walk. Count the options ACTUALLY
+      rendered — never the ones the code could render.
+
+      ## Anti-false-positive guardrail
+
+      Every finding MUST cite: the surface id, the concrete element (and
+      file:line when you can localize the source), the named mechanism, and
+      the CONCRETE cost at a NAMED jtbd step ("at step s2 the persona faces
+      14 undifferentiated actions and must open 3 to find export"). A generic
+      best-practice observation with no traceable user cost at a named step
+      is a false positive — DROP it, do not emit it. An empty findings array
+      is a legal, honest result. Never score criticality — severity_hint is
+      advisory only; code computes the gate downstream.
+
+      ## Output contract (STRUCTURED)
+
+      Submit `findings`: an array of objects, each with EXACTLY this core:
+        { surface, principle: "hick", element, mechanism, jtbd_step,
+          user_cost, evidence, suggested_fix, severity_hint }
+      - `surface`       — the surface id you were handed.
+      - `element`       — the concrete UI element (label/selector), plus
+                          optional `file`/`line` when localized.
+      - `mechanism`     — the named mechanism of violation ("Hick: 14
+                          undifferentiated top-level choices at the step's
+                          decision point").
+      - `jtbd_step`     — the named spine/journey step id.
+      - `user_cost`     — the concrete cost class narrated at that step
+                          (extra-decisions | missed-target | lost-place |
+                          wrong-model | overload | stalled-journey).
+      - `evidence`      — the render/code citation backing it; never invent
+                          an element.
+      - `suggested_fix` — the smallest behavior-preserving change removing
+                          the violation.
+      - `severity_hint` — low | medium | high (advisory; the FMECA gate
+                          computes real criticality).
+      When a host capability supplies its own submission schema, keep these
+      as the semantic core and also map mechanism→root_cause and
+      suggested_fix→remediation.

@@ -1,0 +1,88 @@
+# skills/skill.ux.analyze.clt.yaml
+#
+# MAX-tier principle lens for flow.ux.optimize's SURFACE×PRINCIPLE matrix:
+# Cognitive Load Theory (intrinsic/extraneous/germane + dual-process), split
+# out of plan.ux-design.expert §2/§4 and deepened. Loaded on the flow's
+# `analyzing_cognitive_load` agent leaf. NOTE: the matrix principle token for
+# this lens is `cognitive-load` (matches the base repo's lens vocabulary),
+# while the skill file is named `clt`. Shares the grounding contract +
+# structured findings contract with its sibling skill.ux.analyze.* lenses.
+
+skills:
+  review.ux.analyze.clt:
+    verb: review
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      # Lens: Cognitive Load Theory — intrinsic / extraneous / germane
+
+      Your principle token: `cognitive-load`. Apply ONLY this lens, to ONLY
+      the surface you were handed ($.context.next_cell.surface), grounded in
+      the persona ($.context.persona: id, mental_model, jtbd_spine,
+      ancillary_journeys).
+
+      ## Mechanism (in depth)
+
+      Total load = intrinsic (the job's essential complexity) + extraneous
+      (imposed by presentation) + germane (schema-building the persona
+      WANTS). Only extraneous load is a defect; a UI that strips germane
+      load (hides the model the persona is trying to learn) is ALSO a
+      defect. Hunt with:
+      - **Split attention**: information needed TOGETHER for one decision
+        rendered apart (error message far from the field; docs in another
+        tab; totals off-screen from line items) — the persona pays
+        integration cost per glance.
+      - **Redundancy effect**: the same information restated in competing
+        forms the persona must reconcile (tooltip vs inline text vs modal).
+      - **Extraneous decoration/motion**: animation, badges, promos that
+        compete for attention DURING a high-intrinsic-load step.
+      - **Dual-process demands (System 1/2)**: where the surface forces
+        effortful System-2 reasoning that could be recognition-based —
+        mental arithmetic the UI could compute, format guessing an input
+        mask could remove, mapping codes to names a label could do.
+      - **Progressive disclosure as the remedy**: intrinsic load staged
+        across the step's natural sub-decisions — and its failure mode,
+        disclosure that hides what the CURRENT decision needs.
+
+      ## Grounding requirement (persona/JTBD)
+
+      Walk the persona's jtbd_spine (and ancillary_journeys). Classify the
+      load at each named step: what is intrinsic to the job (leave it),
+      what is extraneous (finding), what is germane (must stay visible).
+      The persona's mental_model decides the split — expert personas carry
+      schemas that reclassify load novices would find extraneous.
+
+      ## Anti-false-positive guardrail
+
+      Every finding MUST cite: the surface id, the concrete element (and
+      file:line when you can localize the source), the named mechanism, and
+      the CONCRETE cost at a NAMED jtbd step. "Too cluttered" with no named
+      integration/reconciliation cost at a named step is a false positive —
+      DROP it. An empty findings array is a legal, honest result. Never
+      score criticality — severity_hint is advisory only.
+
+      ## Output contract (STRUCTURED)
+
+      Submit `findings`: an array of objects, each with EXACTLY this core:
+        { surface, principle: "cognitive-load", element, mechanism,
+          jtbd_step, user_cost, evidence, suggested_fix, severity_hint }
+      - `surface`       — the surface id you were handed.
+      - `element`       — the concrete UI element (label/selector), plus
+                          optional `file`/`line` when localized.
+      - `mechanism`     — the named mechanism ("CLT split-attention: the
+                          quota error renders in a toast while the quota
+                          field stays two viewports up").
+      - `jtbd_step`     — the named spine/journey step id.
+      - `user_cost`     — the concrete cost class narrated at that step
+                          (extra-decisions | missed-target | lost-place |
+                          wrong-model | overload | stalled-journey);
+                          usually overload here.
+      - `evidence`      — the render/code citation backing it; never invent
+                          an element.
+      - `suggested_fix` — the smallest behavior-preserving change removing
+                          the violation.
+      - `severity_hint` — low | medium | high (advisory; the FMECA gate
+                          computes real criticality).
+      When a host capability supplies its own submission schema, keep these
+      as the semantic core and also map mechanism→root_cause and
+      suggested_fix→remediation.

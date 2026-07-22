@@ -1,0 +1,114 @@
+# capabilities/cap.plan.ux-matrix.yaml
+#
+# GROUND + PLAN the SURFACE×PRINCIPLE analysis matrix for flow.ux.optimize.
+# The agent resolves each declared surface against the ACTUAL repo (paths,
+# entry points) and the persona's JTBD spine, then emits a cpm-planner-
+# schedulable PlanGraph whose deliverables are the matrix CELLS (one per
+# surface × principle, 7 principles).
+#
+# Why a cap (not an in-flow agent leaf): V13 — a flow's slot table only
+# types slots written by `inputs:` or a child's `use.outputs`, so the graph
+# must come out of a snippet-typed capability for cap.coordinate.cpm-plan's
+# `use.inputs` to consume it (same rationale as cognitive/cap.plan.build-graph
+# and cap.coordinate.acquire-cohort).
+#
+# Distinct from cognitive/cap.plan.build-graph on purpose: that cap's
+# contract is a CODE DevelopmentPlan (file-disjoint owned_files, acceptance
+# criteria, risk/blast_radius). These cells are ANALYSIS deliverables — no
+# code files are owned; owned_files carries synthetic per-cell tokens purely
+# to satisfy cpm-planner's disjointness invariant.
+#
+# Cognitive verb `plan` → V6 allows kind: noop (agent submits; output lifts).
+
+workflows:
+  cap.plan.ux-matrix:
+    verb: plan
+    lifecycle: experimental
+    description: >
+      Ground the declared surfaces in the repo + persona JTBD, then emit the
+      SURFACE×PRINCIPLE matrix as a cpm-planner-schedulable PlanGraph: one
+      deliverable per cell, metadata {surface, principle}, synthetic
+      owned_files tokens (disjoint by construction), no prerequisites (cells
+      are independent; the driver serializes via acquire). Also emits the
+      grounded surface objects and the cell count.
+    snippet:
+      inputs:
+        surfaces: { type: array,  required: true }
+        persona:  { type: object, required: true }
+      outputs:
+        graph:             { type: object }
+        grounded_surfaces: { type: array }
+        cell_count:        { type: integer }
+    initialState: grounding
+    states:
+      grounding:
+        goal: >
+          GROUND, then PLAN. (1) Read $.workflow.input.surfaces (surface ids
+          — repo-relative UI paths or route ids) and
+          $.workflow.input.persona (id, mental_model, jtbd_spine,
+          ancillary_journeys). For EACH surface id, look at the REAL repo:
+          resolve it into a grounded surface object { id, paths (the
+          repo-relative files that render it), entry (how the persona
+          reaches it), notes (which jtbd_spine / ancillary_journey steps
+          touch it) }. Never invent paths — if a surface id cannot be
+          located, keep it with paths: [] and say so in notes. (2) Build the
+          matrix graph: ONE deliverable per grounded surface × principle,
+          for exactly these 7 principle tokens: hick, fitts, miller,
+          cognitive-load, nielsen, gestalt, jtbd-friction. Each deliverable:
+          { id: "<surface-id>__<principle>", owned_files:
+          ["<surface-id>::<principle>"] (synthetic disjoint token — these
+          are analysis cells, not code edits), prerequisites: [], metadata:
+          { surface: <the grounded surface object>, principle: "<token>" } }.
+          Submit `graph` = { deliverables: [...] }, `grounded_surfaces` =
+          the array of grounded surface objects, and `cell_count` =
+          deliverables.length (must equal surfaces × 7).
+        transitions:
+          submit_matrix:
+            target: done
+            actor: agent
+            inputSchema:
+              type: object
+              required: [graph, grounded_surfaces, cell_count]
+              properties:
+                graph:
+                  type: object
+                  required: [deliverables]
+                  properties:
+                    deliverables:
+                      type: array
+                      minItems: 1
+                      items:
+                        type: object
+                        required: [id, owned_files, prerequisites, metadata]
+                        properties:
+                          id:            { type: string }
+                          owned_files:   { type: array, items: { type: string } }
+                          prerequisites: { type: array, items: { type: string } }
+                          metadata:
+                            type: object
+                            required: [surface, principle]
+                            properties:
+                              surface:
+                                type: object
+                                required: [id]
+                                properties:
+                                  id:    { type: string }
+                                  paths: { type: array, items: { type: string } }
+                                  entry: { type: string }
+                                  notes: { type: string }
+                              principle:
+                                type: string
+                                enum: [hick, fitts, miller, cognitive-load, nielsen, gestalt, jtbd-friction]
+                grounded_surfaces:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [id]
+                cell_count: { type: integer, minimum: 7 }
+            executor: { kind: noop }
+            output:
+              graph:             "$.arguments.graph"
+              grounded_surfaces: "$.arguments.grounded_surfaces"
+              cell_count:        "$.arguments.cell_count"
+      done: { terminal: true }
