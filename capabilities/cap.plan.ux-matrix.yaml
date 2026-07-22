@@ -43,72 +43,54 @@ workflows:
     states:
       grounding:
         goal: >
-          GROUND, then PLAN. (1) Read $.workflow.input.surfaces (surface ids
-          — repo-relative UI paths or route ids) and
+          GROUND the surfaces — nothing else. Read $.workflow.input.surfaces
+          (surface ids — repo-relative UI paths or route ids) and
           $.workflow.input.persona (id, mental_model, jtbd_spine,
           ancillary_journeys). For EACH surface id, look at the REAL repo:
           resolve it into a grounded surface object { id, paths (the
           repo-relative files that render it), entry (how the persona
           reaches it), notes (which jtbd_spine / ancillary_journey steps
           touch it) }. Never invent paths — if a surface id cannot be
-          located, keep it with paths: [] and say so in notes. (2) Build the
-          matrix graph: ONE deliverable per grounded surface × principle,
-          for exactly these 7 principle tokens: hick, fitts, miller,
-          cognitive-load, nielsen, gestalt, jtbd-friction. Each deliverable:
-          { id: "<surface-id>__<principle>", owned_files:
-          ["<surface-id>::<principle>"] (synthetic disjoint token — these
-          are analysis cells, not code edits), prerequisites: [], metadata:
-          { surface: <the grounded surface object>, principle: "<token>" } }.
-          Submit `graph` = { deliverables: [...] }, `grounded_surfaces` =
-          the array of grounded surface objects, and `cell_count` =
-          deliverables.length (must equal surfaces × 7).
+          located, keep it with paths: [] and say so in notes. Submit ONLY
+          grounded_surfaces; the matrix graph is expanded deterministically
+          by the next step (do NOT emit deliverables or counts — a prior
+          version asked for the full graph in one emission and the
+          generation blew the per-call timeout every attempt).
         transitions:
-          submit_matrix:
-            target: done
+          submit_surfaces:
+            target: expanding
             actor: agent
             inputSchema:
               type: object
-              required: [graph, grounded_surfaces, cell_count]
+              required: [grounded_surfaces]
               properties:
-                graph:
-                  type: object
-                  required: [deliverables]
-                  properties:
-                    deliverables:
-                      type: array
-                      minItems: 1
-                      items:
-                        type: object
-                        required: [id, owned_files, prerequisites, metadata]
-                        properties:
-                          id:            { type: string }
-                          owned_files:   { type: array, items: { type: string } }
-                          prerequisites: { type: array, items: { type: string } }
-                          metadata:
-                            type: object
-                            required: [surface, principle]
-                            properties:
-                              surface:
-                                type: object
-                                required: [id]
-                                properties:
-                                  id:    { type: string }
-                                  paths: { type: array, items: { type: string } }
-                                  entry: { type: string }
-                                  notes: { type: string }
-                              principle:
-                                type: string
-                                enum: [hick, fitts, miller, cognitive-load, nielsen, gestalt, jtbd-friction]
                 grounded_surfaces:
                   type: array
                   minItems: 1
                   items:
                     type: object
                     required: [id]
-                cell_count: { type: integer, minimum: 7 }
+                    properties:
+                      id:    { type: string }
+                      paths: { type: array, items: { type: string } }
+                      entry: { type: string }
+                      notes: { type: string }
             executor: { kind: noop }
             output:
-              graph:             "$.arguments.graph"
               grounded_surfaces: "$.arguments.grounded_surfaces"
-              cell_count:        "$.arguments.cell_count"
+
+      # Deterministic: the matrix is a pure cross product — no model decides it.
+      expanding:
+        transitions:
+          expand:
+            target: done
+            actor: deterministic
+            executor:
+              kind: script
+              subject: run.ux-matrix-expand
+              args:
+                - "$.context.grounded_surfaces"
+            output:
+              graph:      "$.output.json.graph"
+              cell_count: "$.output.json.cell_count"
       done: { terminal: true }
