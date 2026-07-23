@@ -1,0 +1,307 @@
+# capabilities/cap.review.ux-matrix-scan.yaml
+#
+# LIGHTWEIGHT runnable entry for the surface×principle UX-review method:
+# SCAN ONLY — no falsification, no FMECA, no fixes. Point a run at any
+# registered repo (the run's ambient $.run.repo_root), hand it a persona,
+# and it walks the matrix method ONE surface per agent step, folding each
+# surface's structured findings into one composed log + a per-surface count
+# summary. For the full governed anneal (falsify → FMECA → fix →
+# re-measure → PR) run cognitive-max/flow.ux.optimize instead.
+#
+# Shape constraints (learned live — engine findings #7/#12):
+#   - An agent step budget is ~900s wall: NEVER demand one whole-matrix
+#     emission. Grounding submits ONLY the small grounded-surface array
+#     ({id, paths, entry, notes} — the exact contract cap.plan.ux-matrix
+#     was rebuilt around after its full-graph emission blew the budget),
+#     and each scan step analyzes ONE surface (7 lenses) — bounded output
+#     per step.
+#   - The per-surface loop is deterministic context-list iteration: a
+#     script pops queue[index] (run.ux-scan-next), a gate branches on the
+#     scalar `exhausted` flag — the same acquire → gate → work → mark →
+#     loop shape as flow.ux.optimize's cell loop, minus cpm-planner (no
+#     connections needed here; the index cursor is the mark).
+#   - The in-loop fold is the inline `concat` output operator — the same
+#     fold cap.compose.findings-log wraps. The V13 slot-table concern that
+#     forced flow.ux.optimize to cap-type its fold does not apply inside
+#     this definition: findings_log IS this cap's own snippet-typed output
+#     (and neither pack nests a capability inside a capability).
+#   - Skills inject into same-definition agent leaves only, so
+#     review.ux.matrix-method is declared on THIS cap's grounding +
+#     scanning states.
+#
+# Cognitive verb `review` → V6 requires a noop/mcp PRIMARY executor on the
+# initial state, so `seeding` (kind: noop, the flow.ux.optimize idiom)
+# fronts the deterministic queue/pop/report `kind: script` plumbing; the
+# agent leaves submit via kind: noop with output lifts.
+
+workflows:
+  cap.review.ux-matrix-scan:
+    verb: review
+    lifecycle: experimental
+    description: >
+      Lightweight surface×principle UX scan (method skill:
+      review.ux.matrix-method). Ground 5-10 persona-reachable surfaces in
+      the run's repo (or accept a pre-grounded list), then scan ONE surface
+      per agent step across all 7 lenses (hick, fitts, miller,
+      cognitive-load, nielsen, gestalt, jtbd-friction), folding the
+      structured findings into one composed log + a per-surface count
+      summary. Scan only — for falsification, FMECA hardening, scope-bounded
+      fixes, and the single PR, run cognitive-max/flow.ux.optimize.
+    snippet:
+      inputs:
+        # { id, mental_model, jtbd_spine[], ancillary_journeys[] } — anchors
+        # grounding and every lens pass.
+        persona:      { type: object,  required: true }
+        # Pre-grounded surface list ({id, paths?, entry?, notes?}); when
+        # supplied, the grounding agent step is skipped entirely.
+        surfaces:     { type: array,   default: [] }
+        max_surfaces: { type: integer, default: 8 }
+      outputs:
+        # The concat-composed findings log: a stream of JSON finding arrays,
+        # one per scanned surface (the same shape flow.ux.optimize's fan-in
+        # accumulates; verify.ux.findings-normalize re-materializes it).
+        findings_log:     { type: string }
+        surface_counts:   { type: object }
+        surfaces_scanned: { type: integer }
+        total_findings:   { type: integer }
+    initialState: seeding
+    states:
+
+      # Seed the input surfaces + budget into context (kind: noop — the V6
+      # Cognitive-verb primary executor; script plumbing follows).
+      seeding:
+        goal: Seed the surface list + scan budget into context.
+        transitions:
+          seed:
+            target: queueing
+            actor: deterministic
+            executor: { kind: noop }
+            output:
+              input_surfaces: "$.workflow.input.surfaces"
+              scan_budget:    "$.workflow.input.max_surfaces"
+
+      # Deterministic: build the scan queue from the supplied surfaces (or
+      # flag that grounding must run), cap it at max_surfaces, and seed the
+      # loop cursor + every declared output so a halt is still honest.
+      queueing:
+        goal: Build the scan queue from the supplied surfaces (or flag grounding); seed the loop.
+        transitions:
+          queue:
+            target: grounding_gate
+            actor: deterministic
+            executor:
+              kind: script
+              subject: run.ux-scan-queue
+              args:
+                - "$.context.input_surfaces"
+                - "$.context.scan_budget"
+            output:
+              need_grounding:   "$.output.json.need_grounding"
+              scan_queue:       "$.output.json.queue"
+              queue_count:      "$.output.json.queue_count"
+              scan_index:       "$.output.json.index"
+              findings_log:     "$.output.json.log_seed"
+              surface_counts:   "$.output.json.counts_seed"
+              surfaces_scanned: "$.output.json.scanned_seed"
+              total_findings:   "$.output.json.total_seed"
+
+      # BRANCH on the scalar grounding flag; an out-of-domain flag halts
+      # loudly (V23) rather than silently mis-routing.
+      grounding_gate:
+        transitions:
+          skip_grounding:
+            target: advancing
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.need_grounding == false" }
+          ground:
+            target: grounding
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.need_grounding == true" }
+          unexpected_flag:
+            target: halted
+            actor: deterministic
+
+      # Agent leaf 1: GROUND — enumerate the surfaces per the loaded
+      # method's step 2. Small submission contract only (engine finding #7:
+      # never one giant emission — the scan happens later, one surface per
+      # step).
+      grounding:
+        goal: >
+          GROUND the surfaces — nothing else. Read $.workflow.input.persona
+          (id, mental_model, jtbd_spine, ancillary_journeys) and apply step
+          2 of your loaded review.ux.matrix-method skill to the REAL repo
+          this run operates on ($.run.repo_root): enumerate the 5-10
+          surfaces the persona can actually reach, every route on their
+          walk. For EACH surface submit a grounded object { id, paths (the
+          repo-relative files that render it), entry (how the persona
+          reaches it — route/URL), notes (which jtbd_spine /
+          ancillary_journey steps touch it) }. Never invent paths — if a
+          surface cannot be located in source, keep it with paths: [] and
+          say so in notes. Submit ONLY grounded_surfaces; do NOT analyze
+          anything here — the per-surface scan runs later, one surface per
+          step.
+        skills: [review.ux.matrix-method]
+        transitions:
+          submit_surfaces:
+            target: requeueing
+            actor: agent
+            inputSchema:
+              type: object
+              required: [grounded_surfaces]
+              properties:
+                grounded_surfaces:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [id]
+                    properties:
+                      id:    { type: string }
+                      paths: { type: array, items: { type: string } }
+                      entry: { type: string }
+                      notes: { type: string }
+            executor: { kind: noop }
+            output:
+              grounded_surfaces: "$.arguments.grounded_surfaces"
+
+      # Deterministic: rebuild the queue from the freshly grounded surfaces
+      # (same script — non-empty by the submission schema's minItems: 1, so
+      # need_grounding cannot re-flag; it is not re-mapped here).
+      requeueing:
+        goal: Rebuild the scan queue from the freshly grounded surfaces.
+        transitions:
+          requeue:
+            target: advancing
+            actor: deterministic
+            executor:
+              kind: script
+              subject: run.ux-scan-queue
+              args:
+                - "$.context.grounded_surfaces"
+                - "$.context.scan_budget"
+            output:
+              scan_queue:  "$.output.json.queue"
+              queue_count: "$.output.json.queue_count"
+              scan_index:  "$.output.json.index"
+
+      # ── THE PER-SURFACE LOOP: advance → gate → scan → advance ──────────
+      # Deterministic pop of queue[scan_index]; exhaustion is a scalar flag.
+      advancing:
+        goal: Pop the next surface off the scan queue (or detect exhaustion).
+        transitions:
+          advance:
+            target: surface_gate
+            actor: deterministic
+            executor:
+              kind: script
+              subject: run.ux-scan-next
+              args:
+                - "$.context.scan_queue"
+                - "$.context.scan_index"
+            output:
+              scan_exhausted:  "$.output.json.exhausted"
+              current_surface: "$.output.json.surface"
+              scan_index:      "$.output.json.next_index"
+
+      # BRANCH on the scalar exhaustion flag; an out-of-domain flag halts
+      # loudly (V23) rather than silently finishing or dead-stalling.
+      surface_gate:
+        transitions:
+          report:
+            target: reporting
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.scan_exhausted == true" }
+          scan:
+            target: scanning
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.scan_exhausted == false" }
+          unexpected_flag:
+            target: halted
+            actor: deterministic
+
+      # Agent leaf 2: SCAN one surface across all 7 lenses. The submission
+      # folds straight into the composed log via the `concat` output
+      # operator (findings_log is this cap's own snippet-typed output — see
+      # header), then the loop re-enters advancing.
+      scanning:
+        goal: >
+          Scan ONE surface. Read $.context.current_surface (id, paths,
+          entry, notes) and $.workflow.input.persona (id, mental_model,
+          jtbd_spine, ancillary_journeys). Apply your loaded
+          review.ux.matrix-method skill to ONLY this surface: all 7 lenses
+          (hick, fitts, miller, cognitive-load, nielsen, gestalt,
+          jtbd-friction), ONE lens at a time, never blended, walking the
+          persona's JTBD spine and reading the surface's REAL files in this
+          run's repo — code, not screenshots. Submit `findings` per the
+          method's structured contract: every finding cites the surface id +
+          element (file:line when localized) + named mechanism + QUOTED code
+          evidence + the concrete cost at a NAMED jtbd step; generic
+          best-practice with no user cost at a named step is dropped; an
+          empty array for a clean surface is a legal, honest result — never
+          pad. Do NOT falsify, rank, or fix anything — this scan is
+          collection only.
+        skills: [review.ux.matrix-method]
+        transitions:
+          submit_findings:
+            target: advancing
+            actor: agent
+            inputSchema:
+              type: object
+              required: [findings]
+              properties:
+                findings:
+                  type: array
+                  items:
+                    type: object
+                    required: [surface, principle, element, mechanism, jtbd_step, user_cost, evidence, suggested_fix, severity_hint]
+                    properties:
+                      surface:       { type: string }
+                      principle:     { type: string, enum: [hick, fitts, miller, cognitive-load, nielsen, gestalt, jtbd-friction] }
+                      element:       { type: string }
+                      file:          { type: string }
+                      line:          { type: integer }
+                      mechanism:     { type: string }
+                      jtbd_step:     { type: string }
+                      user_cost:     { type: string, enum: [extra-decisions, missed-target, lost-place, wrong-model, overload, stalled-journey] }
+                      evidence:      { type: string }
+                      suggested_fix: { type: string }
+                      severity_hint: { type: string, enum: [low, medium, high] }
+            executor: { kind: noop }
+            output:
+              findings_log:
+                concat:
+                  - "$.context.findings_log"
+                  - "$.arguments.findings"
+                  - "\n"
+
+      # Deterministic: fold the per-surface logs into the report — the
+      # composed findings log rides through as-is; the script computes the
+      # per-surface count summary (zeros included for clean surfaces).
+      reporting:
+        goal: Compute the per-surface count summary from the composed findings log.
+        transitions:
+          report:
+            target: done
+            actor: deterministic
+            executor:
+              kind: script
+              subject: run.ux-scan-report
+              args:
+                - "$.context.findings_log"
+                - "$.context.scan_queue"
+            output:
+              surface_counts:   "$.output.json.surface_counts"
+              surfaces_scanned: "$.output.json.surfaces_scanned"
+              total_findings:   "$.output.json.total_findings"
+
+      done: { terminal: true }
+
+      # Loud stop for a broken wire shape (out-of-domain grounding /
+      # exhaustion flag). Never a silent finish (V23).
+      halted:
+        terminal: true
+        outcome: failure
