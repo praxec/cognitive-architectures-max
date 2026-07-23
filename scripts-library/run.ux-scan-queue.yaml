@@ -1,0 +1,66 @@
+version: "1.0.0"
+scripts:
+  run.ux-scan-queue:
+    verb: run
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      #!/usr/bin/env python3
+      # Deterministic scan-queue builder for cap.review.ux-matrix-scan.
+      #
+      # Builds the per-surface iteration queue from a surface array (either
+      # the operator-supplied pre-grounded list, or the grounding agent's
+      # submission), capped at max_surfaces, and seeds the loop cursor plus
+      # every declared cap output so any later halt is still honest. An
+      # EMPTY input array is legal on the first call — it flags
+      # need_grounding=true so the cap routes to its grounding agent leaf.
+      #
+      # Arg $1 = surfaces (JSON array of {id, paths?, entry?, notes?}; may be []).
+      # Arg $2 = max_surfaces (integer, >= 1).
+      # Stdout: {"need_grounding": bool, "queue": [...], "queue_count": N,
+      #          "index": 0, "log_seed": "", "counts_seed": {},
+      #          "scanned_seed": 0, "total_seed": 0}
+      # Fail-closed: malformed input exits non-zero with a reason.
+      import json, sys
+
+      def die(msg):
+          print(json.dumps({"error": msg}), file=sys.stderr)
+          sys.exit(1)
+
+      raw = sys.argv[1] if len(sys.argv) > 1 else "[]"
+      raw_max = sys.argv[2] if len(sys.argv) > 2 else "8"
+      try:
+          surfaces = json.loads(raw) if raw.strip() else []
+      except ValueError as e:
+          die(f"surfaces is not valid JSON: {e}")
+      if surfaces is None:
+          surfaces = []
+      if not isinstance(surfaces, list):
+          die("surfaces must be a JSON array")
+      try:
+          max_surfaces = int(json.loads(raw_max))
+      except (ValueError, TypeError) as e:
+          die(f"max_surfaces is not an integer: {e}")
+      if max_surfaces < 1:
+          die("max_surfaces must be >= 1")
+
+      queue = []
+      for s in surfaces:
+          if not isinstance(s, dict) or not s.get("id"):
+              die(f"surface without an id: {json.dumps(s)[:120]}")
+          queue.append(s)
+      queue = queue[:max_surfaces]
+      ids = [s["id"] for s in queue]
+      if len(ids) != len(set(ids)):
+          die("duplicate surface ids — surface ids must be unique")
+
+      print(json.dumps({
+          "need_grounding": len(queue) == 0,
+          "queue": queue,
+          "queue_count": len(queue),
+          "index": 0,
+          "log_seed": "",
+          "counts_seed": {},
+          "scanned_seed": 0,
+          "total_seed": 0,
+      }))
