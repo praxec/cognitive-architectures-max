@@ -12,11 +12,15 @@ scripts:
       # intended-user archetype -> refine). praxec leveraging the Preveti API
       # as a power feature.
       #
-      # Arg $1 = path to a study-request JSON (the POST body for the endpoint).
+      # Arg $1 = path to a study-request JSON (the POST body for the endpoint:
+      # {objective, audience_json, [items, trials, seed, ...]} — the generic
+      # Preveti run contract).
       # Env:
       #   PREVETI_API_BASE  (default http://localhost:8090)
       #   PREVETI_API_KEY   (required; exchanged at /v1/token for a JWT)
-      #   PREVETI_ENDPOINT  (default /v1/intel/grounded)
+      #   PREVETI_ENDPOINT  (default /v1/runs — the always-generic run surface;
+      #                      submit returns {id}, poll GET /v1/runs/{id},
+      #                      status vocab pending|running|complete|failed|cancelled)
       # Emits a JSON summary on stdout: {passed, job_id, status, result}.
       import json, os, sys, time, urllib.request, urllib.error
 
@@ -26,7 +30,7 @@ scripts:
 
       base = os.environ.get("PREVETI_API_BASE", "http://localhost:8090").rstrip("/")
       key = os.environ.get("PREVETI_API_KEY")
-      endpoint = os.environ.get("PREVETI_ENDPOINT", "/v1/intel/grounded")
+      endpoint = os.environ.get("PREVETI_ENDPOINT", "/v1/runs")
       if not key:
           die("config", "PREVETI_API_KEY required")
       req_path = sys.argv[1] if len(sys.argv) > 1 else None
@@ -51,30 +55,36 @@ scripts:
       if not tok:
           die("auth", "no access_token returned")
 
-      # 2. submit the study
+      # 2. submit the study (POST /v1/runs -> RunDto; `id` is the run id.
+      #    `job_id` fallback keeps the legacy intel-jobs surface usable via
+      #    PREVETI_ENDPOINT override).
       try:
-          jid = call(endpoint, body, tok).get("job_id")
+          acc = call(endpoint, body, tok)
       except urllib.error.HTTPError as e:
           die("submit", f"{e.code}: {e.read().decode()}")
+      jid = acc.get("id") or acc.get("job_id")
       if not jid:
-          die("submit", "no job_id returned")
+          die("submit", f"no run id returned: {json.dumps(acc)[:200]}")
 
-      # 3. poll to a terminal state
+      # 3. poll GET /v1/runs/{id} to a terminal state (REST status vocabulary
+      #    is pinned provider-side: pending|running|complete|failed|cancelled;
+      #    the intel-jobs surface additionally emits succeeded/partial).
       deadline = time.time() + 60 * 15
       status, detail = "running", {}
+      poll_path = f"/v1/runs/{jid}" if endpoint == "/v1/runs" else f"/v1/intel/jobs/{jid}"
       while time.time() < deadline:
           time.sleep(8)
           try:
               tok = call("/v1/token", {"api_key": key}).get("access_token")
-              detail = call(f"/v1/intel/jobs/{jid}", token=tok)
+              detail = call(poll_path, token=tok)
           except urllib.error.HTTPError:
               continue
           status = detail.get("status", "running")
-          if status in ("succeeded", "failed", "partial"):
+          if status in ("complete", "succeeded", "failed", "partial", "cancelled"):
               break
 
       print(json.dumps({
-          "passed": status in ("succeeded", "partial"),
+          "passed": status in ("complete", "succeeded", "partial"),
           "job_id": jid,
           "status": status,
           "result": detail.get("result", detail),
