@@ -185,7 +185,7 @@ workflows:
             actor: deterministic
             executor:
               kind: script
-              subject: cognitive/verify.cargo.cwd
+              subject: verify.cargo.cwd
               workingDirectory: "$.run.repo_root"
             output:
               build_passed:  "$.output.json.passed"
