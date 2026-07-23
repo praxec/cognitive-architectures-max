@@ -26,7 +26,13 @@
 #                   flow.ui.optimal inlines as design_qa/design_qa_gate/
 #                   design_mitigate), hardening the remediation plan.
 #   6 IMPLEMENT     cognitive/cap.implement.scope-bounded — apply the
-#                   hardened plan, bounded to the declared surface paths.
+#                   hardened plan CHUNKED BY SURFACE (finding #17 ask 3):
+#                   a deterministic script splits the plan into per-surface
+#                   chunks; one scope-bounded implement call per chunk;
+#                   per-chunk results fold into a concat accumulator and a
+#                   deterministic merge re-materializes the combined
+#                   implementation_result. Bounded to the declared surface
+#                   paths.
 #   7 RE-MEASURE    cognitive-max/cap.run.ux-simulation — re-run the Preveti
 #                   UX study (wraps scripts-library/run.preveti.ux-study).
 #   8 CONVERGE      bounded anneal: converged when a round's verify finds
@@ -119,6 +125,12 @@ workflows:
       hardened_plan:           {}
       fmeca_ready:             {}
       fmeca_risk_ranking:      {}
+      impl_chunks:             {}
+      impl_chunk_count:        {}
+      impl_index:              {}
+      impl_log:                { type: string }
+      current_impl_chunk:      {}
+      last_impl_result:        {}
       implementation_result:   {}
       remeasure_passed:        {}
       remeasure_status:        {}
@@ -144,6 +156,8 @@ workflows:
       cells_analyzed: 0
       round_cells_analyzed: 0
       raw_findings_log: ""
+      impl_index: 0
+      impl_log: ""
       fmeca_ready: true
       findings_above_bar: []
       residual_findings: []
@@ -769,7 +783,7 @@ workflows:
         goal: Harden the above-bar remediation plan through the FMECA convergence loop.
         transitions:
           harden:
-            target: implementing
+            target: impl_chunking
             actor: deterministic
             executor:
               kind: workflow
@@ -785,24 +799,134 @@ workflows:
                   "$.context.fmeca_ready":        fmeca_ready
                   "$.context.fmeca_risk_ranking": risk_ranking
 
-      # ── STAGE 6: IMPLEMENT (scope-bounded) ───────────────────────────────
-      # Real contract: {plan, scope_paths} → {result}. The declared surfaces
-      # ARE the scope bound — fixes may only touch what was analyzed.
+      # ── STAGE 6: IMPLEMENT (scope-bounded, chunked by surface) ───────────
+      # Finding #17 ask 3: ONE cap.implement.scope-bounded call per SURFACE
+      # chunk of the hardened plan, never all 37 findings in one agent
+      # invocation (which shipped 2/37 and self-reported success). A
+      # deterministic script splits the plan; the chunk loop mirrors the
+      # cap's batch loop (prep → implement → record → gate); per-chunk
+      # results fold into the impl_log concat accumulator and a
+      # deterministic merge re-materializes implementation_result.
+      # Real per-call contract: {plan, scope_paths} → {result}. The declared
+      # surfaces ARE the scope bound — fixes may only touch what was
+      # analyzed.
+      # Cap-typed (V13): impl_chunks feeds impl_prep's use.inputs, so the
+      # chunks must come out of a snippet-typed capability output — the same
+      # rationale as cap.compose.findings-log. The chunk cursor +
+      # accumulator seed in initialContext (round 1) and reset on
+      # round_gate.next_round (round 2+).
+      impl_chunking:
+        goal: Split the hardened plan into per-surface implementation chunks.
+        transitions:
+          chunk:
+            target: impl_gate
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive-max/cap.run.ux-plan-chunk
+              use:
+                inputs:
+                  plan: "$.context.hardened_plan"
+                outputs:
+                  "$.context.impl_chunks":      chunks
+                  "$.context.impl_chunk_count": chunk_count
+
+      # CHUNK LOOP GATE — mutually exclusive over the chunk cursor.
+      # Default (V23): an out-of-domain cursor/count is a wire-shape bug —
+      # halt loudly, never spin.
+      impl_gate:
+        transitions:
+          next_chunk:
+            target: impl_prep
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.impl_index < $.context.impl_chunk_count" }
+          all_chunked:
+            target: impl_merging
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.impl_index >= $.context.impl_chunk_count" }
+          unexpected_cursor:
+            target: halted
+            actor: deterministic
+
+      # Deterministic: select impl_chunks[impl_index] for the next call.
+      # Cap-typed (V13) for the same reason as impl_chunking: the selected
+      # chunk feeds implementing's use.inputs. The cap also returns the
+      # advanced cursor (next_index) — binding it back to impl_index is what
+      # makes the cursor itself a slot-table entry this cap's own use.inputs
+      # may read; at runtime the initial 0 comes from initialContext /
+      # the round reset.
+      impl_prep:
+        goal: Select the current per-surface chunk for the next implement call.
+        transitions:
+          slice:
+            target: implementing
+            actor: deterministic
+            executor:
+              kind: workflow
+              definitionId: cognitive-max/cap.run.ux-chunk-slice
+              use:
+                inputs:
+                  chunks: "$.context.impl_chunks"
+                  index:  "$.context.impl_index"
+                outputs:
+                  "$.context.current_impl_chunk": chunk
+                  "$.context.impl_index":         next_index
+
+      # One scope-bounded implement call for the CURRENT chunk only. The
+      # result lands in a scratch slot (use.outputs is a plain slot capture;
+      # no repo precedent combines it with output: operators on the same
+      # transition) — the next state folds it into the accumulator.
       implementing:
-        goal: Apply the hardened remediation plan, bounded to the analyzed surfaces.
+        goal: Apply the current per-surface chunk of the hardened plan, bounded to the analyzed surfaces.
         transitions:
           implement:
-            target: remeasuring
+            target: impl_record
             actor: deterministic
             executor:
               kind: workflow
               definitionId: cognitive/cap.implement.scope-bounded
               use:
                 inputs:
-                  plan:        "$.context.hardened_plan"
+                  plan:        "$.context.current_impl_chunk"
                   scope_paths: "$.context.surfaces"
                 outputs:
-                  "$.context.implementation_result": result
+                  "$.context.last_impl_result": result
+
+      # Fold the chunk result into the impl_log accumulator (noop + output
+      # operators — the seeding state's and cap.compose.findings-log's exact
+      # pattern), then loop to the gate. The cursor already advanced in
+      # impl_prep (the cap's next_index write-back).
+      impl_record:
+        goal: Fold the chunk result into the implementation log; loop to the gate.
+        transitions:
+          record:
+            target: impl_gate
+            actor: deterministic
+            executor: { kind: noop }
+            output:
+              impl_log:
+                concat:
+                  - "$.context.impl_log"
+                  - "$.context.last_impl_result"
+                  - "\n"
+
+      # Deterministic: re-materialize the per-chunk result stream into the
+      # combined implementation_result the audit trail + PR ride on.
+      impl_merging:
+        goal: Merge the per-chunk implement results into one implementation result.
+        transitions:
+          merge:
+            target: remeasuring
+            actor: deterministic
+            executor:
+              kind: script
+              subject: run.ux-impl-merge
+              args:
+                - "$.context.impl_log"
+            output:
+              implementation_result: "$.output.json.result"
 
       # ── STAGE 7: RE-MEASURE (Preveti UX study) ───────────────────────────
       # Real contract: a study-request JSON path (+ PREVETI_* env), wrapped
@@ -842,6 +966,8 @@ workflows:
             output:
               raw_findings_log: { set: "" }
               round_cells_analyzed: { set: 0 }
+              impl_index: { set: 0 }
+              impl_log: { set: "" }
           force_converge:
             target: composing_pr_body
             actor: deterministic

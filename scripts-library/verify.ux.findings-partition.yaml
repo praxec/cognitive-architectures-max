@@ -15,30 +15,39 @@ scripts:
       #
       # Args:
       #   $1 = candidates JSON array (verify.ux.findings-normalize output,
-      #        each with finding_id + severity_hint)
+      #        each with finding_id + severity_hint; may arrive via the
+      #        finding-#15 spill contract — read with arg())
       #   $2 = cases JSON array ({use_case_id|finding_id, supports, evidence,
-      #        rationale} — the falsification agent's observations)
+      #        rationale} — the merged falsification observations)
       #   $3 = criticality_bar ("high" | "medium"; anything else -> "high")
       #   $4 = persona JSON object
       #   $5 = surfaces JSON array
       # Stdout: {verified_findings, dropped_findings, findings_above_bar,
       #          residual_findings, verified_findings_total, above_bar_count,
       #          remediation_plan}
-      import json, sys
+      import json, os, sys
 
-      def arg(i, default):
+      def arg(i, default=""):
+          v = sys.argv[i] if len(sys.argv) > i else default
+          spilled = json.loads(os.environ.get("PRAXEC_SPILLED_ARGS", "[]"))
+          if (i - 1) in spilled and isinstance(v, str) and v.startswith("@argfile:"):
+              with open(v[len("@argfile:"):]) as f:
+                  return f.read()
+          return v
+
+      def jarg(i, default):
           try:
-              return json.loads(sys.argv[i])
+              return json.loads(arg(i))
           except Exception:
               return default
 
-      candidates = arg(1, [])
-      cases      = arg(2, [])
-      bar        = (sys.argv[3] if len(sys.argv) > 3 else "high").strip().lower()
+      candidates = jarg(1, [])
+      cases      = jarg(2, [])
+      bar        = str(arg(3, "high")).strip().lower()
       if bar not in ("high", "medium"):
           bar = "high"
-      persona  = arg(4, {})
-      surfaces = arg(5, [])
+      persona  = jarg(4, {})
+      surfaces = jarg(5, [])
 
       by_id = {}
       for c in cases if isinstance(cases, list) else []:
