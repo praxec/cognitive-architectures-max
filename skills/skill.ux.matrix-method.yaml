@@ -1,0 +1,124 @@
+# skills/skill.ux.matrix-method.yaml
+#
+# The WHOLE surface×principle UX-review method in ONE self-contained skill —
+# the solo-loadable distillation of what flow.ux.optimize runs governed:
+# persona grounding, surface enumeration, the 7-lens matrix, the structured
+# finding contract, the anti-false-positive guardrails, and the annealing
+# tail. Loaded on cap.review.ux-matrix-scan's agent leaves (grounding + the
+# per-surface scan); also loadable by any host agent that wants the method
+# without the machinery. Each sibling deep lens (review.ux.analyze.*)
+# supersedes this skill's per-lens summary when a host loads it alongside.
+
+skills:
+  review.ux.matrix-method:
+    verb: review
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      # Method: UX review as a SURFACE × PRINCIPLE matrix (persona-grounded, falsifiable)
+
+      Review CODE — components, handlers, state — not screenshots. Every
+      claim must be verifiable in source. Work as a PhD-level cognitive
+      scientist and UX engineer: named mechanisms, quoted evidence, concrete
+      user cost. When a host loads a review.ux.analyze.* sibling skill, that
+      lens's deeper mechanism list supersedes the summary here — this skill
+      is the whole method in one piece for working solo.
+
+      ## 1. Persona (ground truth — every finding traces to it)
+
+      - `id`.
+      - `mental_model` — ONE paragraph, first person: what they hire the
+        product to do, how they think it works, and what BREAKS their model
+        (e.g. "anything that makes me hold state in my head, reconcile two
+        numbers, or guess what a button will spend").
+      - `jtbd_spine` — 3-6 ordered, NAMED steps.
+      - `ancillary_journeys` — billing, history/recovery, settings…
+
+      ## 2. Surfaces — enumerate BEFORE analyzing
+
+      List every surface first: { id, entry point (route/URL), file paths,
+      notes on which spine steps it touches }. Aim for 5-10 surfaces; every
+      route reachable by the persona must appear.
+
+      ## 3. The matrix
+
+      Analyze each (surface × principle) cell SEPARATELY — one lens at a
+      time, never blended. The 7 lenses:
+
+      - **hick** — decision-point option counts: undifferentiated choices
+        at one moment; no recommended default among peers.
+      - **fitts** — target size/distance: small or crowded controls on the
+        spine path; destructive next to frequent.
+      - **miller** — working-memory chunks: how many items the user must
+        HOLD (not see) to finish the step; unchunked codes/lists.
+      - **cognitive-load** — intrinsic vs extraneous vs germane: split
+        attention (facts needed together, rendered apart), redundancy (same
+        fact in two competing forms the user must reconcile), System-2 work
+        the UI could do (raw IDs instead of names, mental arithmetic),
+        disclosure that hides what the CURRENT decision needs.
+      - **nielsen** — the 10 heuristics BY NUMBER; classics: silent async
+        failure (is every mutation's error state actually RENDERED
+        somewhere? grep for `.isError`), unconfirmed paid/destructive
+        actions, same action named differently in two places, exit keys
+        that don't exit.
+      - **gestalt** — what the visual grammar CLAIMS vs what the code DOES:
+        proximity claiming false relationships, same style on unequal-weight
+        actions (paid next to free, destructive styled safe), enclosure
+        lying about scope, "+N more" that doesn't expand, controls visible
+        while their effect region is display:none.
+      - **jtbd-friction** — walk the spine step-by-step in the code: Gulf
+        of Execution (intent has no findable action), Gulf of Evaluation
+        (after acting, can they tell the JOB moved? — check the state
+        machine end-to-end: is the success state even REACHABLE? e.g. a
+        frontend that requires status='shipped' that no backend path
+        writes), dead ends, severed ancillary journeys, irreversibility
+        with no recovery path.
+
+      ## 4. Finding contract (STRUCTURED — one object per finding)
+
+        { surface, principle, element, file, line, mechanism, jtbd_step,
+          user_cost, evidence, suggested_fix, severity_hint }
+
+      - `surface`       — the surface id.
+      - `principle`     — the lens token (hick | fitts | miller |
+                          cognitive-load | nielsen | gestalt | jtbd-friction).
+      - `element`       — the concrete UI element; `file` + `line` localize
+                          it in source.
+      - `mechanism`     — "named mechanism: concrete violation", 1-2
+                          sentences.
+      - `jtbd_step`     — the NAMED spine/journey step.
+      - `user_cost`     — extra-decisions | missed-target | lost-place |
+                          wrong-model | overload | stalled-journey.
+      - `evidence`      — QUOTED code — never paraphrase.
+      - `suggested_fix` — the smallest behavior-preserving change.
+      - `severity_hint` — low | medium | high (advisory only; code computes
+                          any gate downstream).
+
+      ## 5. Anti-false-positive rules (HARD)
+
+      - Every finding cites file:line + quoted code + a concrete cost at a
+        NAMED step.
+      - Generic best-practice with no user cost at a named step → DROP.
+      - Verify in CURRENT code before claiming — remediated codebases make
+        stale findings likely.
+      - An empty findings list for a cell is a legal, honest result.
+      - Never pad — quality over count.
+
+      ## 6. The annealing tail (when running the full method)
+
+      Falsify per surface (a second pass tries to REFUTE each finding
+      against the code; drop what doesn't survive) → FMECA the survivors
+      (severity × occurrence × detectability, mechanical rubric not vibes;
+      rank; criticality bar) → fix above-bar only, scope-bounded, smallest
+      change, red test first where testable → re-measure affected cells,
+      ≤3 rounds or until no above-bar findings → deliver ONE coarse PR
+      (20-50 files) with the finding→fix map. The governed implementation
+      of this tail is cognitive-max/flow.ux.optimize; the scan-only entry
+      is cognitive-max/cap.review.ux-matrix-scan.
+
+      ## Field notes (proven live)
+
+      - The persona's mental_model sentence does the heavy lifting.
+      - "Quoted code or drop it" is the highest-leverage guardrail.
+      - One lens per pass is what makes 7 passes over the same surface each
+        find different defects.

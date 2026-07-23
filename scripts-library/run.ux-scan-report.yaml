@@ -1,0 +1,74 @@
+version: "1.0.0"
+scripts:
+  run.ux-scan-report:
+    verb: run
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      #!/usr/bin/env python3
+      # Deterministic report fold for cap.review.ux-matrix-scan: parse the
+      # concat-accumulated findings log (a stream of JSON arrays separated
+      # by whitespace/newlines — the same shape verify.ux.findings-normalize
+      # parses; tolerant raw_decode scan) and compute the per-surface count
+      # summary. Every scanned surface appears in the counts, zero included
+      # — a clean surface is a legal, honest result, and its zero is part
+      # of the report.
+      #
+      # Arg $1 = the raw findings log (the concat-accumulated string).
+      # Arg $2 = the scan queue (JSON array of the surfaces that were scanned).
+      # Stdout: {"surface_counts": {surface_id: N, ...},
+      #          "surfaces_scanned": N, "total_findings": N,
+      #          "resync_skips": N}
+      # Never fails on malformed log segments — skips them, so one bad
+      # emission cannot sink the whole report.
+      import json, sys
+
+      def die(msg):
+          print(json.dumps({"error": msg}), file=sys.stderr)
+          sys.exit(1)
+
+      raw = sys.argv[1] if len(sys.argv) > 1 else ""
+      raw_queue = sys.argv[2] if len(sys.argv) > 2 else "[]"
+      try:
+          queue = json.loads(raw_queue)
+      except ValueError as e:
+          die(f"queue is not valid JSON: {e}")
+      if not isinstance(queue, list):
+          die("queue must be a JSON array")
+
+      dec = json.JSONDecoder()
+      items, skipped, i, n = [], 0, 0, len(raw)
+      while i < n:
+          while i < n and raw[i] in " \t\r\n":
+              i += 1
+          if i >= n:
+              break
+          try:
+              obj, end = dec.raw_decode(raw, i)
+              i = end
+              if isinstance(obj, list):
+                  items.extend(x for x in obj if isinstance(x, dict))
+              elif isinstance(obj, dict):
+                  items.append(obj)
+          except ValueError:
+              # Skip one char and resync at the next parseable JSON value.
+              skipped += 1
+              i += 1
+
+      counts = {}
+      for s in queue:
+          if isinstance(s, dict) and s.get("id"):
+              counts[str(s["id"])] = 0
+      scanned = len(counts)
+      total = 0
+      for f in items:
+          sid = str(f.get("surface", "")) or "unattributed"
+          counts[sid] = counts.get(sid, 0) + 1
+          total += 1
+
+      print(json.dumps({
+          "surface_counts": counts,
+          "surfaces_scanned": scanned,
+          "total_findings": total,
+          "resync_skips": skipped,
+      }))
