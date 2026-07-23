@@ -1,0 +1,50 @@
+version: "1.0.0"
+scripts:
+  run.ux-chunk-slice:
+    verb: run
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      #!/usr/bin/env python3
+      # Deterministic chunk selector for flow.ux.optimize's chunked implement
+      # loop: pick impl_chunks[impl_index] for the next scope-bounded
+      # implement call.
+      #
+      # Args:
+      #   $1 = impl_chunks JSON array (run.ux-plan-chunk output; may arrive
+      #        via the finding-#15 spill contract — read with arg())
+      #   $2 = impl_index (0-based)
+      # Stdout: {"chunk": {...}, "index": i, "next_index": i+1} — next_index
+      # is the advanced cursor the flow's chunk loop writes back (the
+      # cap-typed counter; see cap.run.ux-chunk-slice).
+      # Fail-closed: a non-numeric or out-of-range index is a wiring bug —
+      # exit non-zero with a reason.
+      import json, os, sys
+
+      def arg(i, default=""):
+          v = sys.argv[i] if len(sys.argv) > i else default
+          spilled = json.loads(os.environ.get("PRAXEC_SPILLED_ARGS", "[]"))
+          if (i - 1) in spilled and isinstance(v, str) and v.startswith("@argfile:"):
+              with open(v[len("@argfile:"):]) as f:
+                  return f.read()
+          return v
+
+      try:
+          chunks = json.loads(arg(1, "[]") or "[]")
+      except ValueError as e:
+          print(json.dumps({"error": "impl_chunks arg is not JSON: %s" % e}))
+          sys.exit(1)
+      if not isinstance(chunks, list):
+          print(json.dumps({"error": "impl_chunks arg is not a JSON array"}))
+          sys.exit(1)
+      try:
+          index = int(str(arg(2, "0")).strip())
+      except ValueError as e:
+          print(json.dumps({"error": "non-numeric impl_index: %s" % e}))
+          sys.exit(1)
+      if index < 0 or index >= len(chunks):
+          print(json.dumps({"error": "impl_index %d out of range for %d chunks"
+                            % (index, len(chunks))}))
+          sys.exit(1)
+
+      print(json.dumps({"chunk": chunks[index], "index": index, "next_index": index + 1}))

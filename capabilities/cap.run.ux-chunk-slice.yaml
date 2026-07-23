@@ -1,0 +1,45 @@
+# capabilities/cap.run.ux-chunk-slice.yaml
+#
+# Deterministic chunk selector for flow.ux.optimize's chunked implement
+# loop (finding #17 ask 3). Wraps scripts-library/run.ux-chunk-slice as a
+# snippet-typed capability for the same V13 reason cap.compose.findings-log
+# exists: the selected chunk feeds cap.implement.scope-bounded via
+# `use.inputs`, so it must be a slot-table entry — a snippet-typed cap
+# output — not an in-flow script write. `next_index` rides along so the
+# flow's cursor slot is likewise cap-typed (the loop's only declarative way
+# to keep a use.inputs-readable counter).
+#
+# Verb `run` (deterministic script gate, same as cap.run.ux-simulation).
+workflows:
+  cap.run.ux-chunk-slice:
+    verb: run
+    lifecycle: experimental
+    description: >
+      Select chunks[index] for the next scope-bounded implement call and
+      return it with the advanced cursor (next_index = index + 1).
+      Fail-closed: a non-numeric or out-of-range index exits non-zero.
+    snippet:
+      inputs:
+        chunks: { type: array,   required: true }  # run.ux-plan-chunk output
+        index:  { type: integer, required: true }  # 0-based chunk cursor
+      outputs:
+        chunk:      { type: object }
+        next_index: { type: integer }
+    initialState: ready
+    states:
+      ready:
+        goal: Select the current chunk and advance the cursor.
+        transitions:
+          slice:
+            target: done
+            actor: deterministic
+            executor:
+              kind: script
+              subject: run.ux-chunk-slice
+              args:
+                - "$.workflow.input.chunks"
+                - "$.workflow.input.index"
+            output:
+              chunk:      "$.output.json.chunk"
+              next_index: "$.output.json.next_index"
+      done: { terminal: true }
