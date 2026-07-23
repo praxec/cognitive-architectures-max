@@ -40,6 +40,8 @@
 
 workflows:
   flow.ux.discovery:
+    tags: [ux, discovery, elicitation, jtbd, persona, spec, readiness, governed]
+    aliases: [ux-discovery, elicit-brief, discovery-front-stage]
     description: >
       Discovery front-stage: interview a vague brief into an aligned spec, then
       gate planning on elicitation's DETERMINISTIC readiness (coverage
