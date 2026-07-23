@@ -1,0 +1,59 @@
+version: "1.0.0"
+scripts:
+  verify.ux.findings-normalize:
+    verb: verify
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      #!/usr/bin/env python3
+      # Deterministic fan-in normalizer for flow.ux.optimize's CPM matrix loop.
+      #
+      # The flow accumulates each cell's findings into ONE blackboard string
+      # via the `concat` output operator (cognitive-max/cap.compose.findings-log):
+      # a sequence of JSON arrays separated by whitespace/newlines. This script
+      # parses that stream (tolerant raw_decode scan), flattens it, DEDUPES by
+      # (surface, principle, element, mechanism), assigns stable finding ids
+      # (f-001..), and emits the candidate set the falsification agent works on.
+      #
+      # Arg $1 = the raw findings log (the concat-accumulated string).
+      # Stdout: {"findings": [...each with finding_id...], "count": N}
+      # Never fails on malformed segments — skips them and reports the count
+      # skipped, so a single bad cell cannot sink the whole verify pass.
+      import json, sys
+
+      raw = sys.argv[1] if len(sys.argv) > 1 else ""
+      dec = json.JSONDecoder()
+      items, skipped, i, n = [], 0, 0, len(raw)
+      while i < n:
+          while i < n and raw[i] in " \t\r\n":
+              i += 1
+          if i >= n:
+              break
+          try:
+              obj, end = dec.raw_decode(raw, i)
+              i = end
+              if isinstance(obj, list):
+                  items.extend(x for x in obj if isinstance(x, dict))
+              elif isinstance(obj, dict):
+                  items.append(obj)
+          except ValueError:
+              # Skip one char and resync at the next parseable JSON value.
+              skipped += 1
+              i += 1
+
+      seen, out = set(), []
+      for f in items:
+          key = (
+              str(f.get("surface", "")),
+              str(f.get("principle", "")),
+              str(f.get("element", "")),
+              str(f.get("mechanism", f.get("root_cause", ""))),
+          )
+          if key in seen:
+              continue
+          seen.add(key)
+          f = dict(f)
+          f["finding_id"] = "f-%03d" % (len(out) + 1)
+          out.append(f)
+
+      print(json.dumps({"findings": out, "count": len(out), "resync_skips": skipped}))

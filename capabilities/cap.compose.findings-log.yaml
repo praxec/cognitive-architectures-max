@@ -1,0 +1,47 @@
+# capabilities/cap.compose.findings-log.yaml
+#
+# Deterministic FOLD step: append a findings array (JSON-serialized) onto a
+# string accumulator, newline-terminated. Pure data plumbing — no LLM, no
+# side effects; the `concat` output operator does the work.
+#
+# Why this exists (V13): praxec's declarative array-accumulation across a
+# loop is the string `concat` operator, but a transition `output:` write is
+# NOT a slot-table entry — only a snippet-typed capability output is. This
+# cap wraps the concat so the accumulator becomes a first-class typed slot a
+# downstream `use.inputs` can consume (same rationale as
+# cognitive/cap.coordinate.acquire-cohort). flow.ux.optimize uses it twice:
+# folding each matrix cell's findings into the fan-in log, and rendering the
+# above-bar findings into the PR body string.
+#
+# Cognitive verb `compose` → V6 allows kind: noop.
+
+workflows:
+  cap.compose.findings-log:
+    verb: compose
+    lifecycle: experimental
+    description: >
+      Append `findings` (JSON-serialized) to the `log` string accumulator,
+      newline-terminated, and return the combined log. Deterministic fold —
+      the declarative fan-in primitive for loop-accumulated findings.
+    snippet:
+      inputs:
+        log:      { type: string, required: true }
+        findings: { type: array,  required: true }
+      outputs:
+        log: { type: string }
+    initialState: ready
+    states:
+      ready:
+        goal: Fold the findings batch onto the log accumulator (concat).
+        transitions:
+          fold:
+            target: done
+            actor: deterministic
+            executor: { kind: noop }
+            output:
+              log:
+                concat:
+                  - "$.workflow.input.log"
+                  - "$.workflow.input.findings"
+                  - "\n"
+      done: { terminal: true }
