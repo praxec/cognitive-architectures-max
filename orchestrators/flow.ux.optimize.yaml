@@ -105,6 +105,7 @@ workflows:
       next_cell_id:            {}
       raw_findings_log:        { type: string }
       cells_analyzed:          {}
+      round_cells_analyzed:    {}
       mark_result:             {}
       mark_failed_result:      {}
       verified_findings:       {}
@@ -141,6 +142,7 @@ workflows:
     initialContext:
       anneal_rounds_completed: 0
       cells_analyzed: 0
+      round_cells_analyzed: 0
       raw_findings_log: ""
       fmeca_ready: true
       findings_above_bar: []
@@ -243,6 +245,10 @@ workflows:
 
       # BRANCH on the scalar exhaustion flag; an out-of-domain flag halts
       # loudly (V23) rather than silently finishing or dead-stalling.
+      # Exhaustion is only a legitimate fan-in when THIS round consumed at
+      # least one cell — exhausted-on-arrival means the cohort was already
+      # spent when the round began (the finding #17 wiring bug: a reused
+      # plan), and converging on it would verify an empty log. Halt loudly.
       cell_gate:
         transitions:
           fan_in:
@@ -250,6 +256,13 @@ workflows:
             actor: deterministic
             guards:
               - { kind: expr, expr: "$.context.cell_exhausted == true" }
+              - { kind: expr, expr: "$.context.round_cells_analyzed >= 1" }
+          exhausted_on_arrival:
+            target: halted
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.cell_exhausted == true" }
+              - { kind: expr, expr: "$.context.round_cells_analyzed == 0" }
           route_cell:
             target: principle_gate
             actor: deterministic
@@ -672,6 +685,7 @@ workflows:
             output:
               mark_result: "$.output"
               cells_analyzed: { add: ["$.context.cells_analyzed", 1] }
+              round_cells_analyzed: { add: ["$.context.round_cells_analyzed", 1] }
 
       # Unroutable cell: mark FAILED (reason preserved, lock released) and
       # keep draining — fail-fast per cell, never a dead-stall (V23).
@@ -692,6 +706,7 @@ workflows:
                 status:         "$.context.status_unroutable"
             output:
               mark_failed_result: "$.output"
+              round_cells_analyzed: { add: ["$.context.round_cells_analyzed", 1] }
 
       # ── STAGE 4: VERIFY (falsification fan-in) ───────────────────────────
       verifying:
@@ -820,12 +835,13 @@ workflows:
       round_gate:
         transitions:
           next_round:
-            target: cpm_planning
+            target: resalting
             actor: deterministic
             guards:
               - { kind: expr, expr: "$.context.anneal_rounds_completed < $.context.max_rounds" }
             output:
               raw_findings_log: { set: "" }
+              round_cells_analyzed: { set: 0 }
           force_converge:
             target: composing_pr_body
             actor: deterministic
@@ -834,6 +850,29 @@ workflows:
           unexpected_round:
             target: composing_pr_body
             actor: deterministic
+
+      # ── STAGE 8c: ROUND RE-SALT (finding #17) ────────────────────────────
+      # plan.submit is idempotent on the graph hash, so looping back with a
+      # byte-identical graph re-fetches the SPENT round-1 plan and the round
+      # measures nothing. Re-expand the same surfaces with the round number
+      # stamped into deliverable metadata — a distinct hash per round → a
+      # fresh 56-cell cohort per round. Deterministic: same expansion script
+      # the planner gate uses, so cell_count can never disagree.
+      resalting:
+        goal: Re-expand the matrix with the round stamp so cpm-plan mints a fresh cohort.
+        transitions:
+          resalt:
+            target: cpm_planning
+            actor: deterministic
+            executor:
+              kind: script
+              subject: run.ux-matrix-expand
+              args:
+                - "$.context.grounded_surfaces"
+                - "$.context.anneal_rounds_completed"
+            output:
+              matrix_graph: "$.output.json.graph"
+              cell_count:   "$.output.json.cell_count"
 
       # ── STAGE 9: ONE PR ──────────────────────────────────────────────────
       # Render the PR body as a typed string slot (the same compose fold —
