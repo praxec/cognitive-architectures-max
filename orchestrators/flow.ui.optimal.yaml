@@ -22,6 +22,8 @@
 # (load-test pending). base caps = cognitive/cap.*, local = cognitive-max/*.
 workflows:
   flow.ui.optimal:
+    tags: [ux, ui, jtbd, hci, cognitive-science, fmeca, design, build, governed]
+    aliases: [optimal-ui, ux-optimal-build, ui-factory]
     description: |
       Optimal UI build: HCI+JTBD-grounded design -> INCOSE/EARS+NFR spec ->
       atomic/BFF design -> customer-alignment FMECA -> signoff -> TDD/story-

@@ -1,0 +1,83 @@
+# skills/skill.ux.analyze.fitts.yaml
+#
+# MAX-tier principle lens for flow.ux.optimize's SURFACE×PRINCIPLE matrix:
+# Fitts's Law (target acquisition), split out of plan.ux-design.expert §2/§4
+# and deepened. Loaded on the flow's `analyzing_fitts` agent leaf. Shares the
+# grounding contract + structured findings contract with its sibling
+# skill.ux.analyze.* lenses (consumed by cap.verify.ux-surface-findings).
+
+skills:
+  review.ux.analyze.fitts:
+    verb: review
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      # Lens: Fitts's Law — target acquisition
+
+      Your principle token: `fitts`. Apply ONLY this lens, to ONLY the
+      surface you were handed ($.context.next_cell.surface), grounded in the
+      persona ($.context.persona: id, mental_model, jtbd_spine,
+      ancillary_journeys).
+
+      ## Mechanism (in depth)
+
+      Time to acquire a target grows with distance and shrinks with size:
+      T = a + b·log2(2D/W). What that predicts on real surfaces:
+      - **Small targets on the critical path**: icon-only buttons, tight
+        checkbox/radio hitboxes, sub-24px touch targets, thin resize/drag
+        handles — each adds acquisition time and miss risk exactly where the
+        JTBD step needs speed.
+      - **Distance between successive actions of ONE step**: a step whose
+        micro-actions ping-pong across the viewport (confirm dialog top-left,
+        trigger bottom-right) pays the D term repeatedly.
+      - **Edges and corners are infinite-width targets** (the cursor pins) —
+        prime real estate wasted on chrome, or actions that SHOULD be edge-
+        pinned floating mid-canvas.
+      - **Hover-revealed and moving targets**: a target that appears on hover
+        or shifts under late layout/loading multiplies effective difficulty
+        (the persona re-acquires it).
+      - Touch vs pointer: on touch surfaces W is thumb-sized; anything under
+        ~44px CSS on the spine's action path is a miss generator.
+
+      ## Grounding requirement (persona/JTBD)
+
+      Walk the persona's jtbd_spine (and ancillary_journeys) across this
+      surface and time the ACTION SEQUENCES: which targets does each named
+      step actually require the persona to hit, in what order, at what
+      rendered size and distance? A small/distant target the persona never
+      needs on the walk is not a defect.
+
+      ## Anti-false-positive guardrail
+
+      Every finding MUST cite: the surface id, the concrete element (and
+      file:line when you can localize the source), the named mechanism, and
+      the CONCRETE cost at a NAMED jtbd step. A generic best-practice
+      observation ("buttons should be bigger") with no traceable user cost at
+      a named step is a false positive — DROP it. An empty findings array is
+      a legal, honest result. Never score criticality — severity_hint is
+      advisory only.
+
+      ## Output contract (STRUCTURED)
+
+      Submit `findings`: an array of objects, each with EXACTLY this core:
+        { surface, principle: "fitts", element, mechanism, jtbd_step,
+          user_cost, evidence, suggested_fix, severity_hint }
+      - `surface`       — the surface id you were handed.
+      - `element`       — the concrete UI element (label/selector), plus
+                          optional `file`/`line` when localized.
+      - `mechanism`     — the named mechanism ("Fitts: 18px icon-only save
+                          target at the end of the step's edit loop").
+      - `jtbd_step`     — the named spine/journey step id.
+      - `user_cost`     — the concrete cost class narrated at that step
+                          (extra-decisions | missed-target | lost-place |
+                          wrong-model | overload | stalled-journey);
+                          usually missed-target here.
+      - `evidence`      — the render/code citation backing it; never invent
+                          an element.
+      - `suggested_fix` — the smallest behavior-preserving change removing
+                          the violation.
+      - `severity_hint` — low | medium | high (advisory; the FMECA gate
+                          computes real criticality).
+      When a host capability supplies its own submission schema, keep these
+      as the semantic core and also map mechanism→root_cause and
+      suggested_fix→remediation.
