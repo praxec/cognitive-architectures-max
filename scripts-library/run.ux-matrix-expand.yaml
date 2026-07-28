@@ -18,6 +18,14 @@ scripts:
       # disagree with the graph and the emission cost is O(1) model tokens.
       #
       # Arg $1 = grounded_surfaces (JSON array of {id, paths?, entry?, notes?}).
+      # Arg $2 (optional) = anneal round number. When present and > 0, every
+      #   deliverable is stamped metadata.anneal_round = N. plan.submit is
+      #   idempotent on the graph hash ("identical graphs return the same
+      #   plan_id" — cpm-planner), so WITHOUT the stamp an anneal loop-back
+      #   resubmits a byte-identical graph, gets the round-1 plan whose
+      #   deliverables are all complete, exhausts acquisition on arrival, and
+      #   "converges" on an empty findings log (live finding #17). The stamp
+      #   makes each round's graph distinct → a fresh cohort per round.
       # Stdout: {"graph": {"deliverables": [...]}, "cell_count": N}
       # Fail-closed: malformed input or empty array exits non-zero with a reason.
       import json, sys
@@ -37,17 +45,29 @@ scripts:
       if not isinstance(surfaces, list) or not surfaces:
           die("grounded_surfaces must be a non-empty JSON array")
 
+      # Optional round stamp (see header). Absent/0 → byte-identical to the
+      # pre-round behavior, so first-pass graphs and their hashes are unchanged.
+      anneal_round = 0
+      if len(sys.argv) > 2 and str(sys.argv[2]).strip():
+          try:
+              anneal_round = int(str(sys.argv[2]).strip())
+          except ValueError:
+              die(f"anneal round (arg 2) must be an integer: {sys.argv[2]!r}")
+
       deliverables = []
       for s in surfaces:
           if not isinstance(s, dict) or not s.get("id"):
               die(f"surface without an id: {json.dumps(s)[:120]}")
           sid = s["id"]
           for p in PRINCIPLES:
+              metadata = {"surface": s, "principle": p}
+              if anneal_round > 0:
+                  metadata["anneal_round"] = anneal_round
               deliverables.append({
                   "id": f"{sid}__{p}",
                   "owned_files": [f"{sid}::{p}"],
                   "prerequisites": [],
-                  "metadata": {"surface": s, "principle": p},
+                  "metadata": metadata,
               })
 
       ids = [d["id"] for d in deliverables]

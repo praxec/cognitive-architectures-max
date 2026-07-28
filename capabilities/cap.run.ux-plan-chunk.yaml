@@ -1,0 +1,45 @@
+# capabilities/cap.run.ux-plan-chunk.yaml
+#
+# Deterministic per-surface chunker for flow.ux.optimize's implement stage
+# (finding #17 ask 3). Wraps scripts-library/run.ux-plan-chunk as a
+# snippet-typed capability for the same V13 reason cap.compose.findings-log
+# exists: a transition `output:` write is NOT a slot-table entry — only a
+# snippet-typed capability output is — and the flow's chunk loop feeds
+# `impl_chunks` into a downstream `use.inputs` (the chunk-slice call), so
+# the chunks must come out of a cap, not an in-flow script write.
+#
+# Verb `run` (deterministic script gate, same as cap.run.ux-simulation).
+workflows:
+  cap.run.ux-plan-chunk:
+    verb: run
+    lifecycle: experimental
+    description: >
+      Split a hardened UX remediation plan into per-surface implementation
+      chunks (findings grouped by surface, first-appearance order, one final
+      "unattributed" chunk for surfaceless findings). Fail-closed on a plan
+      with missing/empty findings. Each chunk is the plan object with ONLY
+      that surface's findings — the unit one scope-bounded implement call
+      receives.
+    snippet:
+      inputs:
+        plan: { type: object, required: true }   # the FMECA-hardened remediation plan
+      outputs:
+        chunks:      { type: array }
+        chunk_count: { type: integer }
+    initialState: ready
+    states:
+      ready:
+        goal: Group the plan's findings by surface into implementation chunks.
+        transitions:
+          chunk:
+            target: done
+            actor: deterministic
+            executor:
+              kind: script
+              subject: run.ux-plan-chunk
+              args:
+                - "$.workflow.input.plan"
+            output:
+              chunks:      "$.output.json.chunks"
+              chunk_count: "$.output.json.chunk_count"
+      done: { terminal: true }

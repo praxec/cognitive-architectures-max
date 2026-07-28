@@ -13,15 +13,31 @@ scripts:
       # a sequence of JSON arrays separated by whitespace/newlines. This script
       # parses that stream (tolerant raw_decode scan), flattens it, DEDUPES by
       # (surface, principle, element, mechanism), assigns stable finding ids
-      # (f-001..), and emits the candidate set the falsification agent works on.
+      # (f-001..), and emits the candidate set the falsification agent works
+      # on — plus batch_count = ceil(count / BATCH_SIZE), the number of
+      # bounded batches the cap's batch loop will hand the agent (finding #17
+      # ask 3: never the whole candidate set in one step).
       #
-      # Arg $1 = the raw findings log (the concat-accumulated string).
-      # Stdout: {"findings": [...each with finding_id...], "count": N}
+      # Arg $1 = the raw findings log (the concat-accumulated string). Large
+      # logs arrive via the engine's finding-#15 spill contract
+      # (@argfile:<path> + PRAXEC_SPILLED_ARGS) — read through arg().
+      # Stdout: {"findings": [...each with finding_id...], "count": N,
+      #          "batch_count": ceil(N/20)}
       # Never fails on malformed segments — skips them and reports the count
       # skipped, so a single bad cell cannot sink the whole verify pass.
-      import json, sys
+      import json, math, os, sys
 
-      raw = sys.argv[1] if len(sys.argv) > 1 else ""
+      BATCH_SIZE = 20
+
+      def arg(i, default=""):
+          v = sys.argv[i] if len(sys.argv) > i else default
+          spilled = json.loads(os.environ.get("PRAXEC_SPILLED_ARGS", "[]"))
+          if (i - 1) in spilled and isinstance(v, str) and v.startswith("@argfile:"):
+              with open(v[len("@argfile:"):]) as f:
+                  return f.read()
+          return v
+
+      raw = arg(1, "")
       dec = json.JSONDecoder()
       items, skipped, i, n = [], 0, 0, len(raw)
       while i < n:
@@ -56,4 +72,9 @@ scripts:
           f["finding_id"] = "f-%03d" % (len(out) + 1)
           out.append(f)
 
-      print(json.dumps({"findings": out, "count": len(out), "resync_skips": skipped}))
+      print(json.dumps({
+          "findings": out,
+          "count": len(out),
+          "batch_count": math.ceil(len(out) / BATCH_SIZE),
+          "resync_skips": skipped,
+      }))
