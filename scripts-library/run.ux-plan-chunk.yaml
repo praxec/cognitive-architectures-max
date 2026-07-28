@@ -1,0 +1,68 @@
+version: "1.0.0"
+scripts:
+  run.ux-plan-chunk:
+    verb: run
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      #!/usr/bin/env python3
+      # Deterministic per-surface chunker for flow.ux.optimize's implement
+      # stage (finding #17 ask 3): one cap.implement.scope-bounded call per
+      # SURFACE, never the whole hardened plan in one agent invocation.
+      #
+      # Arg $1 = hardened_plan JSON object (may arrive via the finding-#15
+      # spill contract — read with arg()). Shape:
+      #   {kind, persona, surfaces, criticality_bar, findings: [...]}
+      # where each finding carries a `surface` field.
+      #
+      # Groups findings by surface PRESERVING first-appearance order; each
+      # chunk is the hardened_plan object with ONLY that surface's findings.
+      # A finding without a surface goes into one final "unattributed" chunk.
+      # Fail-closed: a plan whose findings are missing/empty exits non-zero
+      # with a reason — chunking nothing means the wiring upstream broke.
+      # Stdout: {"chunks": [...], "chunk_count": N}
+      import json, os, sys
+
+      def arg(i, default=""):
+          v = sys.argv[i] if len(sys.argv) > i else default
+          spilled = json.loads(os.environ.get("PRAXEC_SPILLED_ARGS", "[]"))
+          if (i - 1) in spilled and isinstance(v, str) and v.startswith("@argfile:"):
+              with open(v[len("@argfile:"):]) as f:
+                  return f.read()
+          return v
+
+      try:
+          plan = json.loads(arg(1, "") or "null")
+      except ValueError as e:
+          print(json.dumps({"error": "hardened_plan arg is not JSON: %s" % e}))
+          sys.exit(1)
+      if not isinstance(plan, dict):
+          print(json.dumps({"error": "hardened_plan is not a JSON object"}))
+          sys.exit(1)
+      findings = plan.get("findings")
+      if not isinstance(findings, list) or not findings:
+          print(json.dumps({"error": "hardened_plan.findings is missing or empty — nothing to chunk (fail-closed)"}))
+          sys.exit(1)
+
+      groups, order, unattributed = {}, [], []
+      for f in findings:
+          surface = f.get("surface") if isinstance(f, dict) else None
+          if isinstance(surface, str) and surface.strip():
+              if surface not in groups:
+                  groups[surface] = []
+                  order.append(surface)
+              groups[surface].append(f)
+          else:
+              unattributed.append(f)
+
+      chunks = []
+      for surface in order:
+          chunk = dict(plan)
+          chunk["findings"] = groups[surface]
+          chunks.append(chunk)
+      if unattributed:
+          chunk = dict(plan)
+          chunk["findings"] = unattributed
+          chunks.append(chunk)
+
+      print(json.dumps({"chunks": chunks, "chunk_count": len(chunks)}))

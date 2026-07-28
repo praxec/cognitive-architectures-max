@@ -1,0 +1,67 @@
+version: "1.0.0"
+scripts:
+  run.ux-impl-merge:
+    verb: run
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      #!/usr/bin/env python3
+      # Deterministic result merger for flow.ux.optimize's chunked implement
+      # loop: the per-chunk cap.implement.scope-bounded results accumulate
+      # into one string via the `concat` output operator (same fold as
+      # cap.compose.findings-log) — a sequence of JSON values separated by
+      # whitespace/newlines. This script re-materializes that stream (the
+      # same tolerant raw_decode scan verify.ux.findings-normalize uses) and
+      # flattens it into one implementation_result object.
+      #
+      # Arg $1 = the impl_log concat string (may arrive via the finding-#15
+      # spill contract — read with arg()).
+      # Stdout: {"result": {"remediations": [...], "chunks_completed": N}}
+      # where remediations flattens, in stream order: each decoded object's
+      # `remediations` list if present, else its `result` entry, else the
+      # object itself; a decoded array extends the list directly.
+      import json, os, sys
+
+      def arg(i, default=""):
+          v = sys.argv[i] if len(sys.argv) > i else default
+          spilled = json.loads(os.environ.get("PRAXEC_SPILLED_ARGS", "[]"))
+          if (i - 1) in spilled and isinstance(v, str) and v.startswith("@argfile:"):
+              with open(v[len("@argfile:"):]) as f:
+                  return f.read()
+          return v
+
+      raw = arg(1, "")
+      dec = json.JSONDecoder()
+      values, skipped, i, n = [], 0, 0, len(raw)
+      while i < n:
+          while i < n and raw[i] in " \t\r\n":
+              i += 1
+          if i >= n:
+              break
+          try:
+              obj, end = dec.raw_decode(raw, i)
+              i = end
+              values.append(obj)
+          except ValueError:
+              # Skip one char and resync at the next parseable JSON value.
+              skipped += 1
+              i += 1
+
+      remediations = []
+      for v in values:
+          if isinstance(v, dict) and isinstance(v.get("remediations"), list):
+              remediations.extend(v["remediations"])
+          elif isinstance(v, dict) and "result" in v:
+              remediations.append(v["result"])
+          elif isinstance(v, list):
+              remediations.extend(v)
+          else:
+              remediations.append(v)
+
+      print(json.dumps({
+          "result": {
+              "remediations": remediations,
+              "chunks_completed": len(values),
+          },
+          "resync_skips": skipped,
+      }))

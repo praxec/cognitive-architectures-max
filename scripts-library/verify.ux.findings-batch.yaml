@@ -1,0 +1,52 @@
+version: "1.0.0"
+scripts:
+  verify.ux.findings-batch:
+    verb: verify
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      #!/usr/bin/env python3
+      # Deterministic batch slicer for cognitive-max/cap.verify.ux-surface-
+      # findings' bounded falsification loop (finding #17 ask 3): hand the
+      # agent candidates[index*size : (index+1)*size], never the whole set.
+      #
+      # Args:
+      #   $1 = candidates JSON array (verify.ux.findings-normalize output;
+      #        may arrive via the finding-#15 spill contract — read with arg())
+      #   $2 = batch_index (0-based)
+      #   $3 = batch_size (literal, "20")
+      # Stdout: {"batch": [...], "index": i, "size": k} where k is the actual
+      # slice length (the last batch may be short).
+      # Fail-closed: a non-numeric or out-of-range index is a wiring bug —
+      # exit non-zero with a reason, never emit an empty batch silently.
+      import json, os, sys
+
+      def arg(i, default=""):
+          v = sys.argv[i] if len(sys.argv) > i else default
+          spilled = json.loads(os.environ.get("PRAXEC_SPILLED_ARGS", "[]"))
+          if (i - 1) in spilled and isinstance(v, str) and v.startswith("@argfile:"):
+              with open(v[len("@argfile:"):]) as f:
+                  return f.read()
+          return v
+
+      try:
+          candidates = json.loads(arg(1, "[]") or "[]")
+      except ValueError as e:
+          print(json.dumps({"error": "candidates arg is not JSON: %s" % e}))
+          sys.exit(1)
+      if not isinstance(candidates, list):
+          print(json.dumps({"error": "candidates arg is not a JSON array"}))
+          sys.exit(1)
+      try:
+          index = int(str(arg(2, "0")).strip())
+          size = int(str(arg(3, "20")).strip())
+      except ValueError as e:
+          print(json.dumps({"error": "non-numeric batch index/size: %s" % e}))
+          sys.exit(1)
+      if size < 1 or index < 0 or not candidates or index * size >= len(candidates):
+          print(json.dumps({"error": "batch index %d out of range for %d candidates (size %d)"
+                            % (index, len(candidates), size)}))
+          sys.exit(1)
+
+      batch = candidates[index * size:(index + 1) * size]
+      print(json.dumps({"batch": batch, "index": index, "size": len(batch)}))

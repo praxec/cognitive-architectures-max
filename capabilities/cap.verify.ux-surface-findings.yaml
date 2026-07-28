@@ -7,28 +7,45 @@
 #
 # Modeled on cognitive/cap.review.use-case-falsification's separation of
 # concerns — the LLM supplies ONLY per-finding supports/evidence
-# observations; deterministic code computes every verdict:
-#   1. normalizing  (script)   — parse the concat-accumulated findings log,
-#                                dedupe, assign finding ids. Deterministic
-#                                initial executor (verb `verify` is a
-#                                deterministic-category verb, SPEC §4.1 V6).
-#   2. falsifying   (agent)    — adversarial: attempt to REFUTE each
-#                                candidate against the code + jtbd_spine;
-#                                submit one observation per candidate
-#                                (supports=true == survived falsification).
-#                                No verdicts, no partitions.
-#   3. adjudicating (mcp)      — scientific-process `adjudicate` folds the
-#                                observations into a computed report (the
-#                                same tool + shape the use-case gate uses).
-#   4. partitioning (script)   — code computes verified/dropped/above-bar/
-#                                residual + counts + the remediation_plan
-#                                object the FMECA stage hardens. Fail-closed:
-#                                a candidate with no observation is dropped.
+# observations; deterministic code computes every verdict. The falsification
+# work is BATCHED (finding #17 ask 3): one agent step gets at most
+# BATCH_SIZE=20 candidates, never the whole candidate set, so a large matrix
+# fan-in (168 candidates last run) cannot exhaust a single step's budget:
+#   1. normalizing   (script) — parse the concat-accumulated findings log,
+#                               dedupe, assign finding ids, compute
+#                               batch_count = ceil(count/20); seed the batch
+#                               cursor + observation accumulator.
+#   2. batch_gate    (guards) — batch_index < batch_count → batch_prep;
+#                               batch_index >= batch_count → merging;
+#                               out-of-domain → halted (V23, loud).
+#   3. batch_prep    (script) — deterministic slice: candidates[i*20:(i+1)*20]
+#                               into $.context.current_batch.
+#   4. falsifying    (agent)  — adversarial: attempt to REFUTE each candidate
+#                               IN THE CURRENT BATCH against the code +
+#                               jtbd_spine; submit one observation per batch
+#                               candidate (supports=true == survived).
+#                               Observations fold into the obs_log string
+#                               accumulator (concat); the batch cursor
+#                               increments; loop back to batch_gate.
+#   5. merging       (script) — re-materialize the accumulated observation
+#                               stream (tolerant raw_decode scan), dedupe by
+#                               use_case_id keeping the FIRST observation.
+#   6. adjudicating  (mcp)    — scientific-process `adjudicate` folds the
+#                               merged observations into a computed report
+#                               (the same tool + shape the use-case gate uses).
+#   7. partitioning  (script) — code computes verified/dropped/above-bar/
+#                               residual + counts + the remediation_plan
+#                               object the FMECA stage hardens. Fail-closed:
+#                               a candidate with no observation is dropped.
 #
 # `raw_findings` is a STRING — the flow accumulates cell findings as a
 # JSON-array stream via the `concat` output operator (the only declarative
 # array-accumulation praxec offers; see cap.compose.findings-log). The
-# normalize script re-materializes it.
+# normalize script re-materializes it. Oversized args (the raw log, the
+# candidate set, the obs_log) ride the engine's finding-#15 spill contract:
+# args >100KB arrive as @argfile:<path> sentinels named in
+# PRAXEC_SPILLED_ARGS, and every script that can receive one reads through
+# the shared arg() helper.
 #
 # Requires the `science` connection (scientific-process MCP, `adjudicate`).
 
@@ -38,8 +55,10 @@ workflows:
     lifecycle: experimental
     description: >
       Falsify raw surface×principle UX findings against the code and the
-      persona's JTBD spine (Popper). The agent records one supports/evidence
-      observation per finding; scientific-process adjudicates; deterministic
+      persona's JTBD spine (Popper), in bounded batches of 20 candidates per
+      agent step. The agent records one supports/evidence observation per
+      batch candidate; deterministic scripts slice the batches and merge the
+      observation stream; scientific-process adjudicates; deterministic
       scripts normalize the fan-in and compute the partition (verified,
       dropped-with-reason, above-bar vs residual against criticality_bar)
       plus the remediation_plan object for downstream FMECA hardening.
@@ -59,17 +78,37 @@ workflows:
         above_bar_count:         { type: integer }
         remediation_plan:        { type: object }
         report:                  { type: object }
+
+    # The declared outputs seed empty/null so the batch loop's loud-halt
+    # path (batch_gate → halted, V23) still satisfies V24 honestly — a
+    # caller binding them after a halt reads the explicit empties, not a
+    # silently-coerced repair value (the flow.ux.optimize initialContext
+    # pattern).
+    initialContext:
+      verified_findings: []
+      dropped_findings: []
+      findings_above_bar: []
+      residual_findings: []
+      verified_findings_total: 0
+      above_bar_count: 0
+      remediation_plan: null
+      report: null
+
     initialState: normalizing
 
     states:
 
       # 1. Deterministic: re-materialize + dedupe the accumulated cell
-      #    findings; assign stable finding ids the observations key on.
+      #    findings; assign stable finding ids the observations key on;
+      #    compute the batch count and seed the batch cursor + accumulator.
+      #    Targets batch_gate (not batch_prep) so an EMPTY candidate set
+      #    routes straight to merging instead of handing an agent step an
+      #    empty batch.
       normalizing:
-        goal: Parse the accumulated findings log into a deduplicated candidate set.
+        goal: Parse the accumulated findings log into a deduplicated, batch-counted candidate set.
         transitions:
           normalize:
-            target: falsifying
+            target: batch_gate
             actor: deterministic
             executor:
               kind: script
@@ -79,36 +118,81 @@ workflows:
             output:
               candidates:      "$.output.json.findings"
               candidate_count: "$.output.json.count"
+              batch_count:     "$.output.json.batch_count"
+              batch_index:     { set: 0 }
+              obs_log:         { set: "" }
 
-      # 2. Agent (fuzzy): one falsification attempt per candidate. NO verdict.
+      # 2. BATCH LOOP GATE — mutually exclusive over the batch cursor.
+      #    Default (V23): an out-of-domain cursor/count is a wire-shape bug —
+      #    halt loudly, never spin or silently finish.
+      batch_gate:
+        transitions:
+          next_batch:
+            target: batch_prep
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.batch_index < $.context.batch_count" }
+          all_batched:
+            target: merging
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.batch_index >= $.context.batch_count" }
+          unexpected_cursor:
+            target: halted
+            actor: deterministic
+
+      # 3. Deterministic: slice the current batch of (at most) 20 candidates
+      #    out of the full candidate set for the next agent step.
+      batch_prep:
+        goal: Slice the current batch of candidates for the falsification agent.
+        transitions:
+          slice:
+            target: falsifying
+            actor: deterministic
+            executor:
+              kind: script
+              subject: verify.ux.findings-batch
+              args:
+                - "$.context.candidates"
+                - "$.context.batch_index"
+                - "20"
+            output:
+              current_batch: "$.output.json.batch"
+
+      # 4. Agent (fuzzy): one falsification attempt per candidate IN THE
+      #    CURRENT BATCH. NO verdict. Observations accumulate into obs_log
+      #    (the same concat fold cap.compose.findings-log uses); the batch
+      #    cursor increments; control returns to batch_gate.
       falsifying:
         goal: >
           You are an ADVERSARIAL verifier. Goal: REFUTE each candidate UX
-          finding, not confirm it. Read $.context.candidates (each has
-          finding_id), $.workflow.input.persona (id, mental_model,
-          jtbd_spine, ancillary_journeys), and $.workflow.input.surfaces.
-          For EACH candidate, actively try to falsify it: (a) against the
-          CODE — open the cited file/element in this repo; does the cited
-          element exist as described, does the render the finding claims
-          actually occur? (b) against the JTBD SPINE — does the named
-          jtbd_step exist for this persona, and does the narrated user_cost
-          actually bite on that step's walk, or is it a generic
-          best-practice with no traceable cost? A finding whose element is
-          invented, whose jtbd_step is not on the spine/journeys, or whose
-          cost does not survive the walk is REFUTED. Record ONE observation
-          per candidate:
+          finding in the CURRENT BATCH, not confirm it. Read
+          $.context.current_batch (the batch of candidates, each with
+          finding_id — work on THESE ONLY, not any other candidates),
+          $.workflow.input.persona (id, mental_model, jtbd_spine,
+          ancillary_journeys), and $.workflow.input.surfaces.
+          For EACH candidate in the current batch, actively try to falsify
+          it: (a) against the CODE — open the cited file/element in this
+          repo; does the cited element exist as described, does the render
+          the finding claims actually occur? (b) against the JTBD SPINE —
+          does the named jtbd_step exist for this persona, and does the
+          narrated user_cost actually bite on that step's walk, or is it a
+          generic best-practice with no traceable cost? A finding whose
+          element is invented, whose jtbd_step is not on the spine/journeys,
+          or whose cost does not survive the walk is REFUTED. Record ONE
+          observation per candidate:
             { use_case_id: <finding_id>, supports: <bool>,
               evidence: <string>, rationale: <string> }
           supports=false means REFUTED (name the specific contradiction in
           `evidence`); supports=true means the finding SURVIVED your attack
           (state exactly what you checked). "Probably fine" is not
           survival — if you could not ground it, refute it. Submit `cases`
-          = the array of observations, exactly one per candidate, in any
-          order. Do NOT partition or decide anything — code computes the
-          verdicts from your observations.
+          = the array of observations, exactly one per candidate in the
+          current batch, in any order. Do NOT partition or decide anything —
+          code computes the verdicts from your observations.
         transitions:
           assess:
-            target: adjudicating
+            target: batch_gate
             actor: agent
             inputSchema:
               type: object
@@ -126,9 +210,30 @@ workflows:
                       rationale:   { type: string }
             executor: { kind: noop }
             output:
-              uc_cases: "$.arguments.cases"
+              obs_log:
+                concat:
+                  - "$.context.obs_log"
+                  - "$.arguments.cases"
+                  - "\n"
+              batch_index: { add: ["$.context.batch_index", 1] }
 
-      # 3. Deterministic: scientific-process folds the observations into the
+      # 5. Deterministic: re-materialize the accumulated observation stream
+      #    and dedupe by use_case_id (first observation wins).
+      merging:
+        goal: Merge the accumulated batch observations into one deduplicated case set.
+        transitions:
+          merge:
+            target: adjudicating
+            actor: deterministic
+            executor:
+              kind: script
+              subject: verify.ux.findings-obs-merge
+              args:
+                - "$.context.obs_log"
+            output:
+              uc_cases: "$.output.json.cases"
+
+      # 6. Deterministic: scientific-process folds the observations into the
       #    computed adjudication report (same tool as the use-case gate).
       adjudicating:
         transitions:
@@ -144,7 +249,7 @@ workflows:
             output:
               report: "$.output.report"
 
-      # 4. Deterministic: code computes the partition + counts + the
+      # 7. Deterministic: code computes the partition + counts + the
       #    remediation_plan object (fail-closed on unobserved candidates).
       partitioning:
         goal: Compute verified/dropped/above-bar/residual + the remediation plan.
@@ -171,3 +276,7 @@ workflows:
               remediation_plan:        "$.output.json.remediation_plan"
 
       done: { terminal: true }
+
+      # Loud stop for a broken batch cursor/count wire shape (V23 — never a
+      # silent finish, never a spin).
+      halted: { terminal: true }

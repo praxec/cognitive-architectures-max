@@ -30,6 +30,7 @@ skills:
       system does this synchronize with?" — if the answer is "none," it's
       probably an antipattern:
       - **State-sync Effect → derive during render.** `useEffect(() => setFullName(first + ' ' + last), [first,last])` is wrong — `const fullName = first + ' ' + last` during render. No effect, no extra state, no extra render. (The headline antipattern.)
+      - **But NOT external-async sync — the #1 false positive of this review.** The antipattern requires the derived value to be computable from props/state ALREADY present during render. An Effect seeding local editable state from an external async source — server/query-hook data copied into form state on load, a subscription or non-React store mirrored into state, a dialog re-seeding fields from a server-loaded entity on open — IS "synchronizing with an external system" and is legitimate; do not flag it. (At most suggest a `key` remount for reset-on-open, as MINOR.)
       - **Effect to transform/filter data for display → compute in render or `useMemo`** (memo only if provably expensive).
       - **Effect that runs in response to a user event → move the logic into the event handler.** "Send the form, then show a toast" belongs in `onSubmit`, not an Effect watching a flag.
       - **Effect to reset state when a prop changes → use a `key`** (remount) or derive; don't `setState` in an Effect on prop change.

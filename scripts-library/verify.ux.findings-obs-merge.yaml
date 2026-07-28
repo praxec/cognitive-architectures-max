@@ -1,0 +1,72 @@
+version: "1.0.0"
+scripts:
+  verify.ux.findings-obs-merge:
+    verb: verify
+    lifecycle: experimental
+    source: cognitive-architectures-max
+    body: |
+      #!/usr/bin/env python3
+      # Deterministic observation merger for cognitive-max/cap.verify.ux-
+      # surface-findings' batched falsification loop: the falsifying agent's
+      # per-batch `cases` arrays accumulate into one string via the `concat`
+      # output operator (same fold as cap.compose.findings-log) — a sequence
+      # of JSON arrays separated by whitespace/newlines. This script
+      # re-materializes that stream (the same tolerant raw_decode scan
+      # verify.ux.findings-normalize uses), flattens it, and DEDUPES by
+      # use_case_id keeping the FIRST observation, so a candidate re-observed
+      # in a later batch cannot overwrite its original adjudication input.
+      #
+      # Arg $1 = the obs_log concat string. This routinely exceeds the
+      # engine's finding-#15 spill threshold — read through arg()
+      # (@argfile:<path> + PRAXEC_SPILLED_ARGS).
+      # Stdout: {"cases": [...], "count": N}. Observations without a
+      # use_case_id cannot be adjudicated against a candidate — they are
+      # dropped and counted (fail-closed), never passed through.
+      import json, os, sys
+
+      def arg(i, default=""):
+          v = sys.argv[i] if len(sys.argv) > i else default
+          spilled = json.loads(os.environ.get("PRAXEC_SPILLED_ARGS", "[]"))
+          if (i - 1) in spilled and isinstance(v, str) and v.startswith("@argfile:"):
+              with open(v[len("@argfile:"):]) as f:
+                  return f.read()
+          return v
+
+      raw = arg(1, "")
+      dec = json.JSONDecoder()
+      items, skipped, i, n = [], 0, 0, len(raw)
+      while i < n:
+          while i < n and raw[i] in " \t\r\n":
+              i += 1
+          if i >= n:
+              break
+          try:
+              obj, end = dec.raw_decode(raw, i)
+              i = end
+              if isinstance(obj, list):
+                  items.extend(x for x in obj if isinstance(x, dict))
+              elif isinstance(obj, dict):
+                  items.append(obj)
+          except ValueError:
+              # Skip one char and resync at the next parseable JSON value.
+              skipped += 1
+              i += 1
+
+      seen, out, no_id = set(), [], 0
+      for c in items:
+          cid = c.get("use_case_id")
+          if not cid:
+              no_id += 1
+              continue
+          cid = str(cid)
+          if cid in seen:
+              continue
+          seen.add(cid)
+          out.append(c)
+
+      print(json.dumps({
+          "cases": out,
+          "count": len(out),
+          "dropped_no_id": no_id,
+          "resync_skips": skipped,
+      }))
