@@ -128,6 +128,14 @@ workflows:
       # never one giant emission — the scan happens later, one surface per
       # step).
       grounding:
+        # role: grounding (V38 poka-yoke). This step may ONLY read the run's own
+        # repo: `tools:` is pinned to a read-only file reader rooted at
+        # $.run.repo_root, so the agent physically cannot reach an external-fetch
+        # MCP and ground on a same-named public project. An absent `tools:` would
+        # inherit every wired connection — the original fabrication vector — and
+        # `praxec check` now rejects that.
+        role: grounding
+        tools: ["file-ro:{{ $.run.repo_root }}"]
         goal: >
           GROUND the surfaces — nothing else. Read $.workflow.input.persona
           (id, mental_model, jtbd_spine, ancillary_journeys) and apply step
@@ -145,7 +153,7 @@ workflows:
         skills: [review.ux.matrix-method]
         transitions:
           submit_surfaces:
-            target: requeueing
+            target: grounding_verify
             actor: agent
             inputSchema:
               type: object
@@ -165,6 +173,24 @@ workflows:
             executor: { kind: noop }
             output:
               grounded_surfaces: "$.arguments.grounded_surfaces"
+
+      # V38 companion — deterministically verify every grounded surface path
+      # EXISTS under $.run.repo_root BEFORE the scan queue is built. path_grounding
+      # flattens each surface's `paths` array and fails closed (PATH_NOT_GROUNDED
+      # → CHAIN_FAILED) on any file not in the tree, so a hallucinated / phantom
+      # surface set can never reach scanning. Surfaces legitimately kept with
+      # `paths: []` contribute nothing; an ALL-empty set trips PATH_GROUNDING_EMPTY
+      # (nothing grounded to real files — the phantom-repo signal).
+      grounding_verify:
+        goal: Verify every grounded surface path exists under the run's repo root.
+        transitions:
+          verify:
+            target: requeueing
+            actor: deterministic
+            executor:
+              kind: path_grounding
+              groundedPaths:
+                - "$.context.grounded_surfaces"
 
       # Deterministic: rebuild the queue from the freshly grounded surfaces
       # (same script — non-empty by the submission schema's minItems: 1, so
