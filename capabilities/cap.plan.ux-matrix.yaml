@@ -42,6 +42,13 @@ workflows:
     initialState: grounding
     states:
       grounding:
+        # role: grounding (praxec V38). Read-only reader of the run's own repo —
+        # so this step physically cannot reach an external-fetch MCP and ground
+        # on a same-named public project. An absent `tools:` would inherit every
+        # wired connection (the phantom-repo fabrication vector); praxec check
+        # rejects that.
+        role: grounding
+        tools: ["file-ro:{{ $.run.repo_root }}"]
         goal: >
           GROUND the surfaces — nothing else. Read $.workflow.input.surfaces
           (surface ids — repo-relative UI paths or route ids) and
@@ -58,7 +65,7 @@ workflows:
           generation blew the per-call timeout every attempt).
         transitions:
           submit_surfaces:
-            target: expanding
+            target: grounding_verify
             actor: agent
             inputSchema:
               type: object
@@ -78,6 +85,23 @@ workflows:
             executor: { kind: noop }
             output:
               grounded_surfaces: "$.arguments.grounded_surfaces"
+
+      # praxec V38 companion — verify every grounded surface path EXISTS under
+      # $.run.repo_root before the matrix is expanded. path_grounding flattens
+      # each surface's `paths` array and fails closed (PATH_NOT_GROUNDED →
+      # CHAIN_FAILED) on any file not in the tree, so a hallucinated / phantom
+      # surface set can never reach expansion. `paths: []` surfaces contribute
+      # nothing; an ALL-empty set trips PATH_GROUNDING_EMPTY.
+      grounding_verify:
+        goal: Verify every grounded surface path exists under the run's repo root.
+        transitions:
+          verify:
+            target: expanding
+            actor: deterministic
+            executor:
+              kind: path_grounding
+              groundedPaths:
+                - "$.context.grounded_surfaces"
 
       # Deterministic: the matrix is a pure cross product — no model decides it.
       expanding:
