@@ -237,6 +237,7 @@ workflows:
       # Fix ALL issues in $.context.build_issues this pass ($.context.build_summary
       # has the raw tail); the build step re-runs cargo after.
       fixing:
+        requires_file_write: true  # coding-evidence forcing function: success = real file writes
         goal: >
           The StructureOS move applied but the crate does not yet compile/lint/
           test clean. Fix EVERY issue in $.context.build_issues (errors AND
