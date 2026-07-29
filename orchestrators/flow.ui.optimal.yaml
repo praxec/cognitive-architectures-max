@@ -20,6 +20,37 @@
 #
 # Same cross-repo-reference + state-shape caveats as flow.add-ui-feature
 # (load-test pending). base caps = cognitive/cap.*, local = cognitive-max/*.
+#
+# MIGRATED (feat/migrate-max-ui-changeatom) to compose the reusable change atom
+# (base pack `cognitive/flow.change`, build_mode: "tdd") instead of inlining its
+# own build (cap.implement.tdd-loop) + `hop_slot: verify` + gate. The former
+# `building` -> `verifying_ui` -> `ui_gate` trio is now ONE `changing` hop to
+# flow.change + a `change_gate` reading the atom's DoD-evidence outputs
+# (impl_files_changed / ws_verify).
+#
+# SKILLS-FAITHFULNESS (the subtle part of this migration): `building`'s
+# `scope.skills` list injected 4 skill bodies into the AGENT'S SYSTEM PROMPT
+# (assemble_system_message, verbatim, formatted `## {verb}.{subject}`) for
+# whichever state/transition declared them. That mechanism is STRICTLY
+# PER-DEFINITION: a `kind: workflow` sub-mission loads its own definition/
+# `_skillsLibrary` from scratch, so a parent's `scope.skills` NEVER reaches a
+# nested cap.implement.tdd-loop mission (confirmed in engine source: the skill
+# assembly call is always against `request.workflow.definition`, and
+# `kind: workflow` only threads `use.inputs`, never a skills list). This is
+# EXACTLY the gap cap.implement.tdd-loop's own header names ("A workflow-state
+# `scope.skills` list cannot reach a nested sub-mission's own agent state,
+# which is what this replaces/supplements for a caller like flow.ui.optimal
+# that invokes this cap as a sub-workflow") — i.e. the base pack's
+# `craft_guidance` input / this atom's `build_skills` passthrough was DESIGNED
+# for this exact caller. `build_skills` below carries the SAME 4 skills'
+# guidance TEXT verbatim (the identical bodies the skill library stamps),
+# threaded through flow.change -> cap.implement.tdd-loop's `craft_guidance` ->
+# templated into its `iterating` state's `goal:` (the USER/prompt channel,
+# templated) rather than the SYSTEM-prompt channel scope.skills used. Verdict:
+# MIGRATED-FAITHFUL. The mechanism changes (system-prompt-via-ID-resolution ->
+# inline text in the templated user goal) but the substantive guidance content
+# delivered to the SAME model call is preserved verbatim; nothing is dropped or
+# summarized. See MIGRATE-MAX-UI-REPORT.md (repo root) for the full writeup.
 workflows:
   flow.ui.optimal:
     tags: [ux, ui, jtbd, hci, cognitive-science, fmeca, design, build, governed]
@@ -37,11 +68,16 @@ workflows:
       ui_path:       { type: string, default: ui }
       base_ref:      { type: string, default: main }
       lexicon:       { type: object, default: {} }
-    # hop_slot injection puts this flow in strict-blackboard mode, so every
-    # guard-read $.context slot must be declared here (SPEC §11). `verify` is
-    # engine-injected (verifyOut). fmeca_round is ALSO seeded via initialContext
-    # below (a declared slot does not seed a value — input defaults don't reliably
-    # seed $.context, so the counter start still comes from initialContext).
+    # Strict-blackboard mode is triggered by the PRESENCE of this `blackboard:`
+    # block (declared_blackboard_slots), NOT by hop_slot — removing this flow's
+    # sole `hop_slot: verify` transition (see MIGRATED note above) does not
+    # relax it. Every guard-read $.context slot must still be declared here
+    # (SPEC §11). The old hop_slot-injected `verify` slot is gone (no guard
+    # reads it anymore); `ws_verify` (flow.change's own DoD-evidence output,
+    # read by `change_gate`) replaces it. fmeca_round is ALSO seeded via
+    # initialContext below (a declared slot does not seed a value — input
+    # defaults don't reliably seed $.context, so the counter start still comes
+    # from initialContext).
     blackboard:
       feature_brief:         { type: string }
       ui_path:               { type: string }
@@ -53,7 +89,9 @@ workflows:
       fmeca_blockers:        {}
       fmeca_risk_ranking:    {}
       signoff_decision:      { type: string }
-      implementation_result: {}
+      base_commit:           { type: string }
+      impl_files_changed:    { type: integer }
+      ws_verify:             {}
       react_verdict:         { type: string }
       react_findings:        {}
       review_verdict:        { type: string }
@@ -67,6 +105,12 @@ workflows:
     # had no actionable move).
     initialContext:
       fmeca_round: 0
+      # DoD-evidence seeds (same convention as flow.implement.deliverable): a
+      # non-'pass' ws_verify default keeps change_gate fail-closed if the atom
+      # ever returned without setting it.
+      base_commit: ""
+      impl_files_changed: 0
+      ws_verify: { status: "" }
     # ORCHESTRATE-DRIVE FIX: a flow is orchestrate-drivable only if it declares
     # `outcomes` (with a `check`) + a terminal state marked `outcome: success`
     # for the driver to steer toward. Without these, orchestrate "finds no
@@ -198,7 +242,7 @@ workflows:
       signoff_gate:
         transitions:
           advance:
-            target: building
+            target: changing
             actor: deterministic
             guards:
               - kind: expr
@@ -215,47 +259,288 @@ workflows:
             target: failed
             actor: deterministic
 
-      building:
-        # Build with the craft injected: behavioral TDD, atomic decomposition,
-        # story-driven development, and React best-practices (so antipatterns
-        # are avoided at authoring, not just caught at review).
-        scope:
-          skills:
-            - implement.tdd.behavioral-discipline
-            - implement.atomic.component-design
-            - implement.storybook.author
-            - review.react.best-practices
+      # Build via the reusable change atom (build_mode: tdd), with the SAME
+      # craft guidance the old `building` state's `scope.skills` injected — see
+      # the MIGRATED / SKILLS-FAITHFULNESS header note. `scope.skills` cannot
+      # reach a nested `kind: workflow` sub-mission's own agent states, so the
+      # 4 skills' guidance TEXT travels instead as DATA via `build_skills` ->
+      # flow.change's `craft_guidance` passthrough -> cap.implement.tdd-loop's
+      # `iterating` goal template. Verbatim bodies, same order as the old
+      # scope.skills list (implement.tdd.behavioral-discipline,
+      # implement.atomic.component-design, implement.storybook.author,
+      # review.react.best-practices), headed the same way
+      # assemble_system_message formats a skill block (`## <skill-id>`) for
+      # traceability back to the skill library.
+      #
+      # `deliverable` = design_plan (what `building` used to pass tdd-loop as
+      # `plan`); `target_path`/`ui_path` scoping is now the atom's own
+      # building_tdd convention (whole deliverable as scope_paths — see
+      # flow.refactor.to-atomic-design's changing-state comment for the same
+      # note). backstop_cwd = $.run.repo_root (one repo; no multi-repo
+      # re-root needed) — the value every base-pack flow.change caller passes.
+      changing:
+        goal: Run the reusable change atom (TDD build + ts verify + honest DoD) on the design plan.
         transitions:
           build:
-            target: verifying_ui
+            target: change_gate
             actor: deterministic
             executor:
               kind: workflow
-              definitionId: cognitive/cap.implement.tdd-loop
+              definitionId: cognitive/flow.change
               use:
                 inputs:
-                  plan:        "$.context.design_plan"
-                  scope_paths: "$.context.ui_path"
+                  deliverable:  "$.context.design_plan"
+                  backstop_cwd: "$.run.repo_root"
+                  build_mode:   "tdd"
+                  build_skills: |
+                    ## implement.tdd.behavioral-discipline
+
+                    # TDD — atomic, declarative, behavioral
+
+                    Tests encode BEHAVIOR (observable contract), not implementation. Write the
+                    failing test first, watch it fail for the right reason, then the minimal
+                    code to pass. Refactor under green.
+
+                    ## One assertion per test
+                    - Each test asserts exactly ONE behavioral fact and is named for it
+                      (`completes_via_fallback_when_primary_429s`, not `test_completion`).
+                    - "One assertion" = one logical claim. A few `expect`s that together pin
+                      one fact are fine; asserting two independent behaviors in one test is
+                      not — split them so a failure names the broken behavior precisely.
+                    - **Declarative:** arrange → act → assert, with the assert reading like a
+                      spec sentence. No branching/looping logic in the test body that could
+                      itself be wrong; data-drive instead (below).
+                    - No assertion-free tests (a test that only runs code asserts nothing —
+                      it's a coverage lie). No snapshot-as-only-assertion for logic.
+
+                    ## The test pyramid, precisely
+                    - **Unit test:** one unit of code, all collaborators replaced by test
+                      doubles. Fast, deterministic, isolates one behavior.
+                    - **Unit-integration test:** exactly TWO units exercised together (the
+                      integration seam between them), with EVERYTHING ELSE mocked. This
+                      isolates and exercises a single integration — the contract between two
+                      collaborators — without dragging in the whole system. Use it to prove
+                      two units actually compose (the seam unit tests can't see).
+                    - **Integration/E2E:** real subsystems; few, for the critical paths.
+                    Prefer the lowest level that can prove the behavior.
+
+                    ## Testable architecture (build the seams)
+                    - **Dependency inversion at the boundary:** units depend on an interface,
+                      not a concrete client → tests inject a double. Hard-to-test code is a
+                      design smell; fix the seam, don't reach for heavy machinery.
+                    - **Doubles, chosen deliberately:** *stub* (canned answers), *mock*
+                      (asserts the interaction), *fake* (a working lightweight impl, e.g.
+                      in-memory store), *emulator* (a real-protocol local server for an
+                      external service). Use a fake/emulator over a mock when the contract is
+                      rich (an in-memory store beats mocking every query); use a mock when the
+                      interaction itself is the behavior under test.
+                    - **Determinism seams:** inject the clock, randomness, and ids — never
+                      call `now()`/`random()` directly in code under test, so tests pin time.
+
+                    ## Data-driven testing
+                    - Parameterize one behavior across a table of (input → expected) cases
+                      rather than copy-pasting tests; the table is the spec. Each row is still
+                      one behavioral assertion. Cover boundaries, the empty/zero case, and the
+                      negative/unwanted-behavior cases (from the EARS unwanted-behavior reqs).
+                    - Keep a golden corpus for behaviors with many cases; calibrate thresholds
+                      against it.
+
+                    ## NFR tests
+                    Non-functional requirements get tests too: a timeout/deadline test, a
+                    retry/backoff test, a concurrency/no-double-claim test, a degradation/
+                    partial-tolerance test, a no-panic/fail-closed test. An NFR with no test
+                    is an aspiration, not a requirement.
+
+                    ## Output
+                    For each behavior: the failing test first (named for the behavior, one
+                    assertion, the right double at the right level), the run showing it fails
+                    for the right reason, the minimal impl, green, then refactor. Flag any
+                    code you cannot test without a seam and add the seam.
+
+                    ## implement.atomic.component-design
+
+                    # Atomic component design
+
+                    Build interfaces as a composition hierarchy, smallest → largest. Each
+                    level has ONE responsibility and a clear, typed contract, so it can be
+                    understood, tested, and restyled in isolation.
+
+                    ## The five levels
+                    - **Atoms** — irreducible primitives: Button, Input, Badge, Label, Icon,
+                      Stat (a mono tabular number). No business knowledge, no data fetching,
+                      no layout of *other* domain components. Props are presentational
+                      (variant, size, state) + `children`. They consume design tokens, never
+                      hard-coded colors/spacing.
+                    - **Molecules** — a few atoms bound to do one small job: a labeled field
+                      (Label + Input + error), a stat row (Label + Stat + ProvenanceChip), a
+                      search box (Input + Button). Still presentational; takes data via props.
+                    - **Organisms** — a distinct section assembled from molecules/atoms: a
+                      Gap panel, a Findings list, a nav rail. May own *local UI* state
+                      (open/closed) but not business/data logic.
+                    - **Templates** — page-level layout: arrange organisms into a grid/region
+                      skeleton with no real data (the wireframe made of real components).
+                    - **Pages** — a template bound to a concrete view model: fetch/receive the
+                      server-composed data, pass it down. The page is the ONLY level that
+                      knows about data sources.
+
+                    ## Design rules
+                    - **Responsibility test:** can you name what this component does in one
+                      clause without "and"? If not, split it.
+                    - **Contract over internals:** a parent should depend on a child's props,
+                      never its internals. Restyling/replacing a child must not touch parents.
+                    - **Data flows down, lives at the page** (or a route loader). Atoms and
+                      molecules NEVER fetch — that's the #1 atomic-design violation. Push data
+                      up to the page; pass props down.
+                    - **Composition over configuration:** prefer `children`/slots to a growing
+                      prop list. A component with 12 boolean props wants to be several
+                      components or a slotted one.
+                    - **Name by role, not by appearance** (`PrimaryButton`, not `BlueButton`;
+                      `GapPanel`, not `AmberBox`) — appearance is a token/variant concern.
+                    - **Tokens, not literals:** every color/space/type value comes from the
+                      design system. A literal hex in a component is a defect.
+                    - **Variants are data:** express states (loading/empty/error/partial) as
+                      explicit variants with honest content — never a fake/auto-filled state.
+                    - **One component per file**, named for its role; co-locate its story
+                      (`*.stories.tsx`) and test.
+
+                    ## When to split (and when NOT to)
+                    Split when: a file passes ~150 lines or two responsibilities; a chunk is
+                    reused; a chunk has its own state/variant matrix worth testing alone.
+                    Don't split prematurely into atoms nobody reuses — extract on the second
+                    use, not in anticipation. YAGNI applies to the component tree too.
+
+                    ## Output
+                    When designing: produce the component tree (level + name + one-line
+                    responsibility + props contract + which atoms/molecules it composes) and
+                    mark where the page binds the view model. When authoring: build leaf-up,
+                    each level with its story + a render test of its variants.
+
+                    ## implement.storybook.author
+
+                    # Authoring Storybook stories
+
+                    Every component gets a co-located `*.stories.tsx`. The story is where the
+                    component is built and reviewed in ISOLATION — no app, no backend, no
+                    real data — which is exactly what atomic design needs (atoms/molecules
+                    can't fetch, so they're trivially storyable).
+
+                    ## Story shape (CSF3 — Component Story Format 3)
+                    - A default export `meta`: `{ title, component, args, argTypes, tags:
+                      ['autodocs'] }`. `title` follows the atomic hierarchy
+                      (`Atoms/Button`, `Molecules/StatRow`, `Organisms/GapPanel`).
+                    - Named exports = stories, each `{ args }`. One story PER MEANINGFUL
+                      VARIANT/STATE — not just the happy path:
+                      - every variant/size of an atom;
+                      - the honest states an organism must show: **Loading, Empty, Error,
+                        Partial** (mirrors the design-system honest-state rule — never a fake
+                        state);
+                      - edge content (long text, zero items, max items).
+                    - Use **`args` + `argTypes` controls** so a reviewer can manipulate props
+                      live; derive variants from args, don't hard-fork components.
+
+                    ## Interaction + a11y + visual regression
+                    - **Interaction tests** (`play` function with `@storybook/test`): drive
+                      the component (click, type, assert) for stateful organisms — a story
+                      that's also a test.
+                    - **a11y addon**: every story passes the accessibility checks (roles,
+                      labels, contrast, focus order). Numbers/states must have non-color
+                      cues, not color alone.
+                    - **Visual regression**: stories are the snapshot surface (Chromatic /
+                      snapshot test). A diff in a story is a reviewable visual change.
+
+                    ## Discipline
+                    - Story-FIRST for new atoms/molecules: write the story, build the
+                      component against it, then wire it into the page. The component is
+                      "done" when its stories cover every variant + honest state and pass
+                      interaction + a11y.
+                    - No story may depend on a running backend or global app state — inject
+                      everything via args/decorators (a story that needs the server is an
+                      atomic-design violation: the data belongs at the page).
+                    - Keep stories deterministic (fixed data, no `Date.now()`/random) so
+                      visual regression is stable.
+
+                    ## Output
+                    For each component: the `meta` (atomic-titled) + a story per variant and
+                    per honest state (Loading/Empty/Error/Partial), interaction `play` for
+                    stateful ones, and confirmation the a11y checks pass.
+
+                    ## review.react.best-practices
+
+                    # React best practices — antipattern review
+
+                    You are reviewing (or authoring) React/TypeScript. Find and fix the
+                    antipatterns below. For each finding emit: file:line, the antipattern
+                    name, why it's wrong, and the concrete fix. Severity: CRITICAL (bug or
+                    data race), IMPORTANT (wrong model, will rot), MINOR (style/perf).
+
+                    ## 1. useEffect misuse — the #1 source of novice React bugs
+                    An Effect is for **synchronizing with an external system** (network,
+                    DOM, a non-React store, a subscription). It is NOT a place to compute
+                    values or react to user events. Flag every Effect and ask "what external
+                    system does this synchronize with?" — if the answer is "none," it's
+                    probably an antipattern:
+                    - **State-sync Effect → derive during render.** `useEffect(() => setFullName(first + ' ' + last), [first,last])` is wrong — `const fullName = first + ' ' + last` during render. No effect, no extra state, no extra render. (The headline antipattern.)
+                    - **But NOT external-async sync — the #1 false positive of this review.** The antipattern requires the derived value to be computable from props/state ALREADY present during render. An Effect seeding local editable state from an external async source — server/query-hook data copied into form state on load, a subscription or non-React store mirrored into state, a dialog re-seeding fields from a server-loaded entity on open — IS "synchronizing with an external system" and is legitimate; do not flag it. (At most suggest a `key` remount for reset-on-open, as MINOR.)
+                    - **Effect to transform/filter data for display → compute in render or `useMemo`** (memo only if provably expensive).
+                    - **Effect that runs in response to a user event → move the logic into the event handler.** "Send the form, then show a toast" belongs in `onSubmit`, not an Effect watching a flag.
+                    - **Effect to reset state when a prop changes → use a `key`** (remount) or derive; don't `setState` in an Effect on prop change.
+                    - **Effect chains** (Effect A setStates → triggers Effect B): collapse into one calculation or one event handler. Cascading effects = extra renders + ordering bugs.
+                    - **Fetching in an Effect without a race guard → data races.** If you must fetch in an Effect, capture an `ignore`/`AbortController` and clean up; preferably use a data library (TanStack Query) or the framework's loader/action. Unguarded `fetch().then(setState)` races on fast prop changes (stale response wins).
+                    - **Subscribing to an external store via Effect+setState → `useSyncExternalStore`.**
+                    - **Missing/over-broad dependency arrays**: lying to the linter (`// eslint-disable`), `[]` when the effect reads props/state, or stuffing unstable values (inline objects/functions) into deps so it fires every render.
+
+                    ## 2. State modeling
+                    - **Derived state stored in state** (e.g. `selectedItem` duplicated from `items[selectedId]`): compute it; a single source of truth.
+                    - **Redundant/contradictory state** that could be one variable or a reducer.
+                    - **State that should be a ref** (values that don't affect render: timers, previous-value, instance handles) → `useRef`, not `useState`.
+                    - **Uncontrolled where you need controlled** (and vice-versa) — pick one; don't read DOM values you also track in state.
+                    - **State colocation**: lift state only as high as the lowest common owner; don't hoist everything to a top-level god-component, and don't bury shared state too low.
+
+                    ## 3. Rendering & reconciliation
+                    - **Index-as-`key`** on reorderable/dynamic lists → stable domain ids. Index keys corrupt state on insert/reorder.
+                    - **`setState` during render** / **mutating state or props directly** (`state.push(x)`) → immutable update.
+                    - **Inline object/array/function props** (`style={{...}}`, `onClick={() => ...}`) handed to memoized children defeat memo and churn renders → hoist/`useCallback`/`useMemo` where it matters.
+                    - **Premature memoization**: `useMemo`/`useCallback`/`React.memo` sprinkled everywhere adds cost + bugs. Memoize only measured-expensive work or to keep a stable reference a memoized child depends on.
+
+                    ## 4. Component structure (atomic-design aware)
+                    - **Business/data logic inside components** → extract to hooks/services. The component should read like a template over its inputs. (Reinforces the BFF/view-model law: render the server-composed view model; no joins/derivation/composition in the component.)
+                    - **God components** (300+ lines, many responsibilities) → decompose along atomic-design lines: atoms (Button, Badge, Stat) → molecules (a labeled field, a stat row) → organisms (a panel) → templates → pages. Each unit one responsibility, testable in isolation.
+                    - **Prop drilling** 3+ levels → composition (`children`/slots) first, then context for genuinely cross-cutting state (sparingly — context re-renders all consumers on change; don't put high-frequency state in it).
+                    - **Fetching/effects in leaf/atom components** → push data to the page/loader; keep atoms pure and presentational.
+
+                    ## 5. Hooks rules & hazards
+                    - **Conditional hooks / hooks in loops or after an early return** → violates the rules of hooks.
+                    - **Custom hooks that hide a fetch with no loading/error/race handling.**
+                    - **`useEffect` where the framework offers a loader/action/Suspense boundary** (e.g. server components / route loaders) → prefer the framework primitive.
+
+                    ## 6. TypeScript hygiene
+                    - `any` / unsound casts at boundaries (esp. on the generated proto/view-model types — consume them as typed, don't `as any`).
+                    - Untyped event handlers, missing discriminated unions for variant state.
+
+                    ## Output discipline
+                    Lead with CRITICAL findings (races, rules-of-hooks violations, direct
+                    mutation). Give the fix, not just the complaint. If you find an Effect,
+                    justify why it must be an Effect or replace it. Zero findings is a valid
+                    result only after you've checked every Effect and every piece of state
+                    against §1–§2.
                 outputs:
-                  "$.context.implementation_result": result
+                  "$.context.base_commit":        base_commit
+                  "$.context.impl_files_changed": impl_files_changed
+                  "$.context.ws_verify":          ws_verify
 
-      verifying_ui:
-        transitions:
-          # First-class specialization slot (Spec A §3.1): the engine injects
-          # verifyIn/verifyOut and wires the resolved cap.verify.ts (stack: ts).
-          verify_ui:
-            target: ui_gate
-            actor: deterministic
-            hop_slot: verify
-
-      ui_gate:
+      # DoD HANDOFF GATE: replaces the old `ui_gate`'s
+      # `$.context.verify.status == 'pass'` read (the hop_slot-injected slot)
+      # with `$.context.ws_verify.status == 'pass'` (flow.change's own
+      # DoD-evidence output) + the atom's file-change evidence — the same
+      # defense-in-depth shape flow.implement.deliverable's `change_gate` uses.
+      change_gate:
         transitions:
           advance:
             target: reviewing_react
             actor: deterministic
             guards:
-              - kind: expr
-                expr: "$.context.verify.status == 'pass'"
+              - { kind: expr, expr: "$.context.impl_files_changed >= 1" }
+              - { kind: expr, expr: "$.context.ws_verify.status == 'pass'" }
           abort:
             target: failed
             actor: deterministic
