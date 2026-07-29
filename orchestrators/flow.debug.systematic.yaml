@@ -108,7 +108,7 @@ workflows:
       planning:
         transitions:
           plan:
-            target: implementing
+            target: changing
             actor: deterministic
             executor:
               kind: workflow
@@ -120,51 +120,62 @@ workflows:
                 outputs:
                   "$.context.fix_plan": plan
 
-      implementing:
+      # Replaces the old implementing -> verifying -> verified trio with the
+      # reusable change atom (flow.change): build_mode 'scope-bounded' routes
+      # to the SAME cap.implement.scope-bounded builder `implementing` called
+      # directly before; verify_mode 'regression' routes to the SAME
+      # cap.verify.regression-tests verifier `verifying` called directly
+      # before, with its {ok}->{status} shape mapped onto ws_verify inside the
+      # atom. `deliverable` is fix_plan — exactly what `implementing` passed
+      # as both `plan` and `scope_paths` to cap.implement.scope-bounded (the
+      # atom's building_scope arm threads the SAME deliverable to both).
+      # `backstop_cwd` is $.run.repo_root — the ambient repo root
+      # cap.implement.scope-bounded already ran in (no repoRoot override
+      # existed before this migration). defect_location/repro_steps thread
+      # the SAME diagnosis evidence `verifying` passed directly, so the
+      # regression verifier gets identical context.
+      changing:
+        goal: Build the scope-bounded fix and regression-verify it via the reusable change atom.
         transitions:
-          edit:
-            target: verifying
+          change:
+            target: change_gate
             actor: deterministic
             executor:
               kind: workflow
-              definitionId: cognitive/cap.implement.scope-bounded
+              definitionId: cognitive/flow.change
               use:
                 inputs:
-                  plan:        "$.context.fix_plan"
-                  scope_paths: "$.context.fix_plan"
-                outputs:
-                  "$.context.edit_result": result
-
-      verifying:
-        transitions:
-          verify:
-            target: verified
-            actor: deterministic
-            executor:
-              kind: workflow
-              definitionId: cognitive/cap.verify.regression-tests
-              use:
-                inputs:
+                  deliverable:     "$.context.fix_plan"
+                  backstop_cwd:    "$.run.repo_root"
+                  build_mode:      "scope-bounded"
+                  verify_mode:     "regression"
                   defect_location: "$.context.defect_location"
                   repro_steps:     "$.context.repro_steps"
                 outputs:
-                  "$.context.regression_ok":          ok
-                  "$.context.regression_tests_added": tests_added
+                  "$.context.impl_files_changed": impl_files_changed
+                  "$.context.ws_verify":          ws_verify
 
-      verified:
+      # DoD HANDOFF GATE: replaces the old `verified` gate. flow.change's own
+      # outcomes already enforce the honest DoD (impl_files_changed >= 1 AND
+      # ws_verify.status == 'pass') internally and route any miss to its own
+      # `failed` terminal — which errors THIS `changing` transition and fails
+      # the mission before change_gate is ever reached. This gate re-checks
+      # the same two conditions as fail-fast defense-in-depth (same pattern as
+      # flow.implement.deliverable's change_gate). Exhaustive: guarded
+      # advance (both hold) | unguarded abort (default).
+      change_gate:
         transitions:
           advance:
             target: reviewing
             actor: deterministic
             guards:
               - kind: expr
-                expr: "$.context.regression_ok == true"
+                expr: "$.context.impl_files_changed >= 1"
+              - kind: expr
+                expr: "$.context.ws_verify.status == 'pass'"
           abort:
             target: failed
             actor: deterministic
-            guards:
-              - kind: expr
-                expr: "$.context.regression_ok == false"
 
       reviewing:
         transitions:
