@@ -28,29 +28,33 @@
 # flow.change + a `change_gate` reading the atom's DoD-evidence outputs
 # (impl_files_changed / ws_verify).
 #
-# SKILLS-FAITHFULNESS (the subtle part of this migration): `building`'s
-# `scope.skills` list injected 4 skill bodies into the AGENT'S SYSTEM PROMPT
-# (assemble_system_message, verbatim, formatted `## {verb}.{subject}`) for
-# whichever state/transition declared them. That mechanism is STRICTLY
-# PER-DEFINITION: a `kind: workflow` sub-mission loads its own definition/
-# `_skillsLibrary` from scratch, so a parent's `scope.skills` NEVER reaches a
-# nested cap.implement.tdd-loop mission (confirmed in engine source: the skill
-# assembly call is always against `request.workflow.definition`, and
-# `kind: workflow` only threads `use.inputs`, never a skills list). This is
-# EXACTLY the gap cap.implement.tdd-loop's own header names ("A workflow-state
-# `scope.skills` list cannot reach a nested sub-mission's own agent state,
-# which is what this replaces/supplements for a caller like flow.ui.optimal
-# that invokes this cap as a sub-workflow") — i.e. the base pack's
-# `craft_guidance` input / this atom's `build_skills` passthrough was DESIGNED
-# for this exact caller. `build_skills` below carries the SAME 4 skills'
-# guidance TEXT verbatim (the identical bodies the skill library stamps),
-# threaded through flow.change -> cap.implement.tdd-loop's `craft_guidance` ->
-# templated into its `iterating` state's `goal:` (the USER/prompt channel,
-# templated) rather than the SYSTEM-prompt channel scope.skills used. Verdict:
-# MIGRATED-FAITHFUL. The mechanism changes (system-prompt-via-ID-resolution ->
-# inline text in the templated user goal) but the substantive guidance content
-# delivered to the SAME model call is preserved verbatim; nothing is dropped or
-# summarized. See MIGRATE-MAX-UI-REPORT.md (repo root) for the full writeup.
+# SKILLS: THIS MIGRATION FIXES A LATENT SKILL-DROP, it does not merely
+# "preserve" prior behavior. Pre-migration, `building`'s `scope.skills` list
+# (implement.tdd.behavioral-discipline, implement.atomic.component-design,
+# implement.storybook.author, review.react.best-practices) was declared on
+# THIS flow's `building` state, but the actual authoring agent ran inside a
+# NESTED `kind: workflow` sub-mission (`cognitive/cap.implement.tdd-loop`). A
+# `kind: workflow` transition starts a fresh child mission that loads its OWN
+# definition/`_skillsLibrary` from scratch (confirmed in engine source:
+# `assemble_system_message`/`collect_in_scope_skill_subjects` is always called
+# against `request.workflow.definition` — the currently-executing definition —
+# and `StartWorkflow` only threads `use.inputs`, never a parent's `skills:`
+# list). So those 4 skills NEVER reached the tdd-loop's agent, before this
+# migration or after any prior version of this flow — the build agent was
+# silently missing its craft guidance the whole time. (cap.implement.tdd-loop's
+# own header names this exact gap and names flow.ui.optimal as the caller it
+# was built to fix: "A workflow-state `scope.skills` list cannot reach a nested
+# sub-mission's own agent state, which is what this replaces/supplements for a
+# caller like flow.ui.optimal that invokes this cap as a sub-workflow.")
+#
+# `build_skills` below carries the SAME 4 skills' guidance TEXT verbatim (the
+# identical bodies the skill library stamps), threaded through flow.change ->
+# cap.implement.tdd-loop's `craft_guidance` -> templated into its `iterating`
+# state's `goal:` (the USER/prompt channel) — the mechanism the base pack
+# purpose-built for this caller. Verdict: this is a BEHAVIOR IMPROVEMENT, not a
+# byte-identical preservation — the build agent now actually receives the
+# craft guidance it was supposed to have all along. See MIGRATE-MAX-UI-REPORT.md
+# (repo root) for the full writeup.
 workflows:
   flow.ui.optimal:
     tags: [ux, ui, jtbd, hci, cognitive-science, fmeca, design, build, governed]
@@ -259,18 +263,21 @@ workflows:
             target: failed
             actor: deterministic
 
-      # Build via the reusable change atom (build_mode: tdd), with the SAME
-      # craft guidance the old `building` state's `scope.skills` injected — see
-      # the MIGRATED / SKILLS-FAITHFULNESS header note. `scope.skills` cannot
-      # reach a nested `kind: workflow` sub-mission's own agent states, so the
-      # 4 skills' guidance TEXT travels instead as DATA via `build_skills` ->
-      # flow.change's `craft_guidance` passthrough -> cap.implement.tdd-loop's
-      # `iterating` goal template. Verbatim bodies, same order as the old
-      # scope.skills list (implement.tdd.behavioral-discipline,
-      # implement.atomic.component-design, implement.storybook.author,
-      # review.react.best-practices), headed the same way
-      # assemble_system_message formats a skill block (`## <skill-id>`) for
-      # traceability back to the skill library.
+      # Build via the reusable change atom (build_mode: tdd), now ACTUALLY
+      # delivering the craft guidance the old `building` state's `scope.skills`
+      # DECLARED but never delivered (a `kind: workflow` sub-mission never saw
+      # it — see the SKILLS header note: this migration fixes a latent
+      # skill-drop). The 4 skills' guidance TEXT travels as DATA via
+      # `build_skills` -> flow.change's `craft_guidance` passthrough ->
+      # cap.implement.tdd-loop's `iterating` goal template. Verbatim bodies,
+      # same order as the old scope.skills list
+      # (implement.tdd.behavioral-discipline, implement.atomic.component-design,
+      # implement.storybook.author, review.react.best-practices), each headed
+      # `## <skill-id>` — a COSMETIC in-goal marker for human traceability back
+      # to the skill library, not a lookup key: it does not need to (and does
+      # not) match `assemble_system_message`'s own system-prompt header format
+      # (`## {verb}.{subject}`, which double-prefixes the verb, e.g.
+      # `## implement.implement.tdd.behavioral-discipline` — see skills.rs).
       #
       # `deliverable` = design_plan (what `building` used to pass tdd-loop as
       # `plan`); `target_path`/`ui_path` scoping is now the atom's own
@@ -346,7 +353,8 @@ workflows:
                       against it.
 
                     ## NFR tests
-                    Non-functional requirements get tests too: a timeout/deadline test, a
+                    Non-functional requirements get tests too (see
+                    `plan.nfr.ilities-and-distributed`): a timeout/deadline test, a
                     retry/backoff test, a concurrency/no-double-claim test, a degradation/
                     partial-tolerance test, a no-panic/fail-closed test. An NFR with no test
                     is an aspiration, not a requirement.
@@ -380,8 +388,8 @@ workflows:
                     - **Templates** — page-level layout: arrange organisms into a grid/region
                       skeleton with no real data (the wireframe made of real components).
                     - **Pages** — a template bound to a concrete view model: fetch/receive the
-                      server-composed data, pass it down. The page is the ONLY level that
-                      knows about data sources.
+                      server-composed data (see `plan.bff.pattern-api`), pass it down. The page is
+                      the ONLY level that knows about data sources.
 
                     ## Design rules
                     - **Responsibility test:** can you name what this component does in one
@@ -389,8 +397,9 @@ workflows:
                     - **Contract over internals:** a parent should depend on a child's props,
                       never its internals. Restyling/replacing a child must not touch parents.
                     - **Data flows down, lives at the page** (or a route loader). Atoms and
-                      molecules NEVER fetch — that's the #1 atomic-design violation. Push data
-                      up to the page; pass props down.
+                      molecules NEVER fetch — that's the #1 atomic-design violation (see
+                      `review.react.best-practices` §4). Push data up to the page; pass props
+                      down.
                     - **Composition over configuration:** prefer `children`/slots to a growing
                       prop list. A component with 12 boolean props wants to be several
                       components or a slotted one.
@@ -401,7 +410,7 @@ workflows:
                     - **Variants are data:** express states (loading/empty/error/partial) as
                       explicit variants with honest content — never a fake/auto-filled state.
                     - **One component per file**, named for its role; co-locate its story
-                      (`*.stories.tsx`) and test.
+                      (`*.stories.tsx`, see `implement.storybook.author`) and test.
 
                     ## When to split (and when NOT to)
                     Split when: a file passes ~150 lines or two responsibilities; a chunk is

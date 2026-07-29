@@ -31,7 +31,7 @@ dropped because flow.change does not surface the inner builder's raw `result` ob
 DoD-evidence slots, seeded in `initialContext` exactly as `flow.implement.deliverable` (the canonical wrap
 pattern) does.
 
-## Migration 2 — `flow.ui.optimal` — MIGRATED (faithful)
+## Migration 2 — `flow.ui.optimal` — MIGRATED (fixes a latent skill-drop)
 
 **Before:** `signoff_gate` → `building` (`scope.skills: [implement.tdd.behavioral-discipline,
 implement.atomic.component-design, implement.storybook.author, review.react.best-practices]`,
@@ -44,7 +44,7 @@ verbatim>`) → `change_gate` (same two guards as migration 1) → `reviewing_re
 converge-loop → `awaiting_signoff`/`signoff_gate` prefix and the `reviewing_react` → `react_gate` →
 `reviewing_adversarial` → `adversarial_gate` → `opening_pr` tail are byte-identical.
 
-### The skills-faithfulness question — verdict: **MIGRATED-FAITHFUL**
+### The skills-faithfulness question — verdict: **FIXES A LATENT SKILL-DROP** (not byte-identical preservation)
 
 Investigated the engine mechanism directly (mcp-flowgate source):
 
@@ -57,25 +57,34 @@ Investigated the engine mechanism directly (mcp-flowgate source):
   (`crates/praxec-core/src/templating.rs:29`) into the **user prompt** (`crates/praxec-agents/src/executor.rs:704-724`).
 - `scope.skills` is **strictly per-definition**: `assemble_system_message` is always called against
   `request.workflow.definition` — the *currently executing* workflow's own JSON. A `kind: workflow`
-  transition starts a **fresh** child mission (`crates/praxec-executors/src/workflow.rs:334-338`) that loads
-  its own definition/`_skillsLibrary` from scratch; only `use.inputs` values cross the boundary. There is no
-  mechanism that copies a parent's `skills:` array into a child. So `building`'s `scope.skills` NEVER reached
-  `cap.implement.tdd-loop`'s own agent state even *before* this migration — the sub-mission boundary already
-  cut it off. (`cap.implement.tdd-loop`'s own header names this exact gap and names `flow.ui.optimal` as the
-  caller it was built to fix: "*A workflow-state `scope.skills` list cannot reach a nested sub-mission's own
-  agent state, which is what this replaces/supplements for a caller like flow.ui.optimal that invokes this
-  cap as a sub-workflow.*")
+  transition starts a **fresh** child mission (`crates/praxec-executors/src/workflow.rs:334-338`, `StartWorkflow`)
+  that loads its own definition/`_skillsLibrary` from scratch; only `use.inputs` values cross the boundary.
+  There is no mechanism that copies a parent's `skills:` array into a child.
+
+  **This means `building`'s `scope.skills` NEVER reached `cap.implement.tdd-loop`'s own agent state — not
+  after this migration, but BEFORE it too, in every prior version of this flow.** The 4 skills
+  (implement.tdd.behavioral-discipline, implement.atomic.component-design, implement.storybook.author,
+  review.react.best-practices) were declared on `flow.ui.optimal`'s `building` state, but the state that
+  actually ran the authoring agent was the NESTED `cap.implement.tdd-loop` sub-mission — a sub-mission
+  boundary the skill scope never crossed. The build agent has been silently missing this craft guidance the
+  whole time this flow has existed. (`cap.implement.tdd-loop`'s own header names this exact gap and names
+  `flow.ui.optimal` as the caller it was built to fix: "*A workflow-state `scope.skills` list cannot reach a
+  nested sub-mission's own agent state, which is what this replaces/supplements for a caller like
+  flow.ui.optimal that invokes this cap as a sub-workflow.*")
 - `craft_guidance` (the cap's own input) is templated into the `iterating` state's `goal:` — i.e. it rides
   the **same user-prompt channel** `goal:` always used, not a new one.
 
-**Conclusion:** the mechanism changes — system-prompt-via-ID-resolution → inline text in the templated
-user-goal — but (a) this input was purpose-built by the base pack for exactly this caller, (b) the
-substantive guidance content is preserved **verbatim** (the four skill bodies, copied byte-for-byte from
+**Conclusion:** this migration is a **behavior improvement**, not a preservation. `build_skills` now
+threads the four skills' guidance TEXT (copied byte-for-byte from
 `skills/implement.tdd.behavioral-discipline.yaml`, `implement.atomic.component-design.yaml`,
-`implement.storybook.author.yaml`, `review.react.best-practices.yaml`, in the same order, headed
-`## <skill-id>` for traceability back to the library), and (c) both channels land in the same LLM call to
-the same model. Nothing is dropped, summarized, or paraphrased. This is a documented mechanism swap, not a
-lossy shortcut — migrated.
+`implement.storybook.author.yaml`, `review.react.best-practices.yaml`, in the same order, each headed
+`## <skill-id>` as a cosmetic in-goal marker for human traceability — NOT a lookup key, and it does not need
+to match `assemble_system_message`'s own system-prompt header format, which double-prefixes the verb, e.g.
+`## implement.implement.tdd.behavioral-discipline`) through flow.change's `craft_guidance` passthrough into
+the tdd-loop's `iterating` goal — the mechanism the base pack purpose-built for this caller. The build agent
+now actually receives the craft guidance it was always supposed to have. Overstating this as "faithful
+preservation" would understate a real, positive behavior change — the exact anti-pattern this program
+exists to prevent.
 
 **Dropped slot:** `implementation_result` (write-only, same reasoning as migration 1) → replaced by
 `base_commit`/`impl_files_changed`/`ws_verify`.
