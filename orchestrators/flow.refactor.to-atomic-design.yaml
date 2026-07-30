@@ -9,22 +9,45 @@
 # Same state-shape + cross-repo-reference caveats as flow.add-ui-feature
 # (load-test pending; base caps referenced as cognitive/cap.*, local as
 # cognitive-max/cap.*). See docs/spec-p1-ui-verify-pack.md.
+#
+# MIGRATED (feat/migrate-max-ui-changeatom) to compose the reusable change atom
+# (base pack `cognitive/flow.change`, build_mode: "tdd") instead of inlining its
+# own build (cap.implement.tdd-loop) + `hop_slot: verify` + gate. The former
+# `refactoring` -> `verifying_ui` -> `ui_verified` trio is now ONE `changing` hop
+# to flow.change + a `change_gate` reading the atom's DoD-evidence outputs
+# (impl_files_changed / ws_verify). See flow.change's own header
+# (../../cognitive-architectures/orchestrators/flow.change.yaml) + the canonical
+# wrap pattern in that repo's flow.implement.deliverable.yaml. Behavior-
+# preserving: same decomposition_plan feeds the same TDD builder, same
+# stack-appropriate (ts) verifier gates `reviewing`, byte-identical
+# signoff-prefix and review-tail. `refactor_result` (write-only; never read by
+# any guard/template in this flow) is dropped — flow.change does not surface the
+# inner builder's raw `result` object as a top-level output — and replaced by
+# the atom's own DoD-evidence slots (base_commit/impl_files_changed/ws_verify),
+# the same convention flow.implement.deliverable uses.
 workflows:
   flow.refactor.to-atomic-design:
     description: |
       Decompose a target component into atoms/molecules/organisms/templates:
       analyze structure (structureos) -> decomposition plan -> human signoff ->
-      behavior-preserving refactor -> ui-green verify -> React-antipattern review.
-    # Spec A §5 — a ts/vite pack; the UI verify gate is now a `hop_slot: verify`
-    # resolving to `cognitive-max/cap.verify.ts`.
+      behavior-preserving refactor (via the flow.change atom, build_mode: tdd)
+      -> ts verify -> React-antipattern review.
+    # Spec A §5 — a ts/vite pack. The UI verify gate now lives INSIDE the
+    # flow.change atom (stack auto-detected -> cognitive/cap.verify.ts); this
+    # flow no longer declares its own `hop_slot: verify`.
     stack: ts
     inputs:
       target_path: { type: string, required: true }   # the component/dir to decompose
       ui_path:     { type: string, default: ui }
       base_ref:    { type: string, default: main }
       lexicon:     { type: object, default: {} }
-    # hop_slot injection → strict blackboard mode: every guard-read $.context slot
-    # must be declared (SPEC §11). `verify` is engine-injected (verifyOut).
+    # NOTE: removing the sole `hop_slot: verify` transition does NOT relax
+    # strict-blackboard mode — that mode is triggered by the PRESENCE of this
+    # `blackboard:` block (declared_blackboard_slots), not by hop_slot (which
+    # only auto-injected the `verify` slot's shape while it existed). Every
+    # guard-read $.context slot must still be declared here (SPEC §11); the
+    # old `verify` slot is gone (no guard reads it anymore) and is replaced by
+    # `ws_verify` (read by `change_gate`, populated via flow.change's outputs).
     blackboard:
       target_path:        { type: string }
       ui_path:            { type: string }
@@ -32,9 +55,18 @@ workflows:
       lexicon:            { type: object }
       decomposition_plan: {}
       signoff_decision:   { type: string }
-      refactor_result:    {}
+      base_commit:        { type: string }
+      impl_files_changed: { type: integer }
+      ws_verify:          {}
       review_verdict:     { type: string }
       review_findings:    {}
+    # DoD-evidence seeds (same convention as flow.implement.deliverable): a
+    # non-'pass' ws_verify default keeps change_gate fail-closed if the atom
+    # ever returned without setting it.
+    initialContext:
+      base_commit: ""
+      impl_files_changed: 0
+      ws_verify: { status: "" }
     initialState: planning_decomposition
     states:
       planning_decomposition:
@@ -76,7 +108,7 @@ workflows:
       signoff_received:
         transitions:
           advance:
-            target: refactoring
+            target: changing
             actor: deterministic
             guards:
               - kind: expr
@@ -93,40 +125,56 @@ workflows:
             target: failed
             actor: deterministic
 
-      refactoring:
-        # Behavior-preserving: the TDD/build loop refactors against the existing
-        # tests + stories (see implement.storybook.author) — green stays green.
+      # Behavior-preserving: run the reusable change atom (build_mode: tdd) on
+      # the decomposition plan. It routes the SAME builder this state used to
+      # call directly (cap.implement.tdd-loop, against the existing tests +
+      # stories — green stays green), then measures real file-change evidence
+      # and runs the ts-stack verifier (auto-detected: deliverable.stack, else
+      # this repo's filesystem — package.json), emitting the DoD-evidence
+      # outputs `change_gate` reads. `target_path` (the component/dir to
+      # decompose) is what this state used to pass tdd-loop as `scope_paths`;
+      # flow.change's own building_tdd arm always threads the WHOLE
+      # `deliverable` as scope_paths (the same convention its other TDD-mode
+      # callers use) — that scoping choice now lives in the atom, not here.
+      # backstop_cwd = $.run.repo_root (this flow operates on ONE repo; no
+      # multi-repo re-root is needed) — the same value every existing
+      # flow.change caller in the base pack passes.
+      changing:
+        goal: Run the reusable change atom (TDD build + ts verify + honest DoD) on the decomposition plan.
         transitions:
-          refactor:
-            target: verifying_ui
+          change:
+            target: change_gate
             actor: deterministic
             executor:
               kind: workflow
-              definitionId: cognitive/cap.implement.tdd-loop
+              definitionId: cognitive/flow.change
               use:
                 inputs:
-                  plan:        "$.context.decomposition_plan"
-                  scope_paths: "$.context.target_path"
+                  deliverable:  "$.context.decomposition_plan"
+                  backstop_cwd: "$.run.repo_root"
+                  build_mode:   "tdd"
                 outputs:
-                  "$.context.refactor_result": result
+                  "$.context.base_commit":        base_commit
+                  "$.context.impl_files_changed": impl_files_changed
+                  "$.context.ws_verify":          ws_verify
 
-      verifying_ui:
-        transitions:
-          # First-class specialization slot (Spec A §3.1): the engine injects
-          # verifyIn/verifyOut and wires the resolved cap.verify.ts (stack: ts).
-          verify_ui:
-            target: ui_verified
-            actor: deterministic
-            hop_slot: verify
-
-      ui_verified:
+      # DoD HANDOFF GATE: replaces the old `ui_verified` gate's
+      # `$.context.verify.status == 'pass'` read (the hop_slot-injected slot) with
+      # `$.context.ws_verify.status == 'pass'` (flow.change's own DoD-evidence
+      # output) + the atom's file-change evidence — the same defense-in-depth
+      # shape flow.implement.deliverable's `change_gate` uses. Reaching this
+      # state already implies the DoD was met (flow.change routes every
+      # failure — no-op, verifier-fail, undetected stack — to its own `failed`
+      # terminal, which errors the `changing` transition and fails this
+      # mission directly); `abort` is fail-closed defense-in-depth.
+      change_gate:
         transitions:
           advance:
             target: reviewing
             actor: deterministic
             guards:
-              - kind: expr
-                expr: "$.context.verify.status == 'pass'"
+              - { kind: expr, expr: "$.context.impl_files_changed >= 1" }
+              - { kind: expr, expr: "$.context.ws_verify.status == 'pass'" }
           abort:
             target: failed
             actor: deterministic
