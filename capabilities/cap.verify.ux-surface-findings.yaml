@@ -8,17 +8,22 @@
 # Modeled on cognitive/cap.review.use-case-falsification's separation of
 # concerns — the LLM supplies ONLY per-finding supports/evidence
 # observations; deterministic code computes every verdict. The falsification
-# work is BATCHED (finding #17 ask 3): one agent step gets at most
-# BATCH_SIZE=20 candidates, never the whole candidate set, so a large matrix
-# fan-in (168 candidates last run) cannot exhaust a single step's budget:
+# work is BATCHED (finding #17 ask 3, tightened by finding #19 follow-on):
+# one agent step gets at most BATCH_SIZE=6 candidates, never the whole
+# candidate set, so a large matrix fan-in (168 candidates last run) cannot
+# exhaust a single step's budget. The size dropped from 20 → 6 because ≤20
+# still blew the falsify step's full 1800s budget (deepseek-v4-pro,
+# effort:high → AGENT_BUDGET_EXCEEDED → AGENT_NOT_CONVERGING → chain
+# exhausted → verify errored before implement/PR); 6 candidates/step
+# finalizes comfortably within budget:
 #   1. normalizing   (script) — parse the concat-accumulated findings log,
 #                               dedupe, assign finding ids, compute
-#                               batch_count = ceil(count/20); seed the batch
+#                               batch_count = ceil(count/6); seed the batch
 #                               cursor + observation accumulator.
 #   2. batch_gate    (guards) — batch_index < batch_count → batch_prep;
 #                               batch_index >= batch_count → merging;
 #                               out-of-domain → halted (V23, loud).
-#   3. batch_prep    (script) — deterministic slice: candidates[i*20:(i+1)*20]
+#   3. batch_prep    (script) — deterministic slice: candidates[i*6:(i+1)*6]
 #                               into $.context.current_batch.
 #   4. falsifying    (agent)  — adversarial: attempt to REFUTE each candidate
 #                               IN THE CURRENT BATCH against the code +
@@ -55,7 +60,7 @@ workflows:
     lifecycle: experimental
     description: >
       Falsify raw surface×principle UX findings against the code and the
-      persona's JTBD spine (Popper), in bounded batches of 20 candidates per
+      persona's JTBD spine (Popper), in bounded batches of 6 candidates per
       agent step. The agent records one supports/evidence observation per
       batch candidate; deterministic scripts slice the batches and merge the
       observation stream; scientific-process adjudicates; deterministic
@@ -141,7 +146,7 @@ workflows:
             target: halted
             actor: deterministic
 
-      # 3. Deterministic: slice the current batch of (at most) 20 candidates
+      # 3. Deterministic: slice the current batch of (at most) 6 candidates
       #    out of the full candidate set for the next agent step.
       batch_prep:
         goal: Slice the current batch of candidates for the falsification agent.
@@ -155,7 +160,10 @@ workflows:
               args:
                 - "$.context.candidates"
                 - "$.context.batch_index"
-                - "20"
+                # MUST equal BATCH_SIZE in verify.ux.findings-normalize (which
+                # computes batch_count = ceil(count/6)); the two agree or the
+                # loop drops or re-walks candidates. See finding #19 follow-on.
+                - "6"
             output:
               current_batch: "$.output.json.batch"
 
