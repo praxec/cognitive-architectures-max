@@ -18,16 +18,25 @@ scripts:
       # bounded batches the cap's batch loop will hand the agent (finding #17
       # ask 3: never the whole candidate set in one step).
       #
+      # BATCH_SIZE=6 (finding #19 follow-on): the earlier ≤20 batching still
+      # exhausted a single falsify step's 1800s budget (deepseek-v4-pro,
+      # effort:high — AGENT_BUDGET_EXCEEDED → AGENT_NOT_CONVERGING → chain
+      # exhausted). 6 candidates/step keeps each agent call finalizing well
+      # within budget. This constant is the SINGLE source of truth for the
+      # batch size and MUST equal the size arg the cap's batch_prep passes to
+      # verify.ux.findings-batch — batch_count here and the slice width there
+      # have to agree or the loop drops or re-walks candidates.
+      #
       # Arg $1 = the raw findings log (the concat-accumulated string). Large
       # logs arrive via the engine's finding-#15 spill contract
       # (@argfile:<path> + PRAXEC_SPILLED_ARGS) — read through arg().
       # Stdout: {"findings": [...each with finding_id...], "count": N,
-      #          "batch_count": ceil(N/20)}
+      #          "batch_count": ceil(N/6)}
       # Never fails on malformed segments — skips them and reports the count
       # skipped, so a single bad cell cannot sink the whole verify pass.
       import json, math, os, sys
 
-      BATCH_SIZE = 20
+      BATCH_SIZE = 6
 
       def arg(i, default=""):
           v = sys.argv[i] if len(sys.argv) > i else default
