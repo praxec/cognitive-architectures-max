@@ -14,7 +14,8 @@ scripts:
       #   $1 = candidates JSON array (verify.ux.findings-normalize output;
       #        may arrive via the finding-#15 spill contract — read with arg())
       #   $2 = batch_index (0-based)
-      #   $3 = batch_size (literal, "20")
+      #   $3 = batch_size (literal, "6" — MUST match BATCH_SIZE in
+      #        verify.ux.findings-normalize, which computes batch_count)
       # Stdout: {"batch": [...], "index": i, "size": k} where k is the actual
       # slice length (the last batch may be short).
       # Fail-closed: a non-numeric or out-of-range index is a wiring bug —
@@ -39,7 +40,7 @@ scripts:
           sys.exit(1)
       try:
           index = int(str(arg(2, "0")).strip())
-          size = int(str(arg(3, "20")).strip())
+          size = int(str(arg(3, "6")).strip())
       except ValueError as e:
           print(json.dumps({"error": "non-numeric batch index/size: %s" % e}))
           sys.exit(1)
