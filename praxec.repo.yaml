@@ -36,3 +36,9 @@ layout:
   skills:       skills
   scripts:      scripts-library
   connections:  ._unused_connections
+
+# `connections/` holds a reference connection template (structureos.yaml) this
+# manifest remaps away (above) and never loads. Declare it reference-only so
+# `check`/`serve` don't warn UNSCANNED_DEFINITION_DIR on the by-design layout.
+reference_only:
+  - connections
