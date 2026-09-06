@@ -49,6 +49,10 @@ workflows:
       # The directory cargo runs in for the build gate AND the crate the fixup
       # agent edits — a workspace MEMBER dir, so verify.cargo.cwd scopes to it
       # (the god file lives under here, e.g. "crates/praxec-agents").
+    outcomes:
+      - id: build_verified
+        statement: The decomposed crate passed compilation, lint, and tests.
+        check: "$.context.build_passed == true"
     initialState: scanning
     initialContext:
       # Literal action strings live here so the mcp `map:` can bind them as
@@ -66,6 +70,7 @@ workflows:
       # Build-gate loop state (seed so the first gate + the {add} have values).
       fix_iter:      0
       build_passed:  false
+      diagnostics_available: false
       build_issues:  ""
       build_summary: ""
     states:
@@ -189,6 +194,7 @@ workflows:
               workingDirectory: "$.run.repo_root"
             output:
               build_passed:  "$.output.json.passed"
+              diagnostics_available: "$.output.json.diagnostics_available"
               build_summary: "$.output.json.summary"
               # COMPLETE error/warning list (not a tail) so one fixup pass fixes
               # everything the move broke at once.
@@ -212,6 +218,14 @@ workflows:
             guards:
               - { kind: expr, expr: "$.context.build_passed == false" }
               - { kind: expr, expr: "$.context.fix_iter < 4" }
+              - { kind: expr, expr: "$.context.diagnostics_available == true" }
+          missing_diagnostics:
+            target: needs_human
+            actor: deterministic
+            guards:
+              - { kind: expr, expr: "$.context.build_passed == false" }
+              - { kind: expr, expr: "$.context.fix_iter < 4" }
+              - { kind: expr, expr: "$.context.diagnostics_available == false" }
           # Red at the cap: the move's edges aren't converging — surface to a
           # human (no silent spin, no silent broken "done").
           escalate_unfixed:
@@ -237,6 +251,10 @@ workflows:
       # Fix ALL issues in $.context.build_issues this pass ($.context.build_summary
       # has the raw tail); the build step re-runs cargo after.
       fixing:
+        # Opt-in Praxec auto-drive continuation: an identical diagnostic set is
+        # insufficient reason for another paid attempt. Counters are excluded.
+        continuation:
+          reads: ["$.context.build_issues"]
         requires_file_write: true  # coding-evidence forcing function: success = real file writes
         goal: >
           The StructureOS move applied but the crate does not yet compile/lint/
@@ -270,10 +288,10 @@ workflows:
           The decomposition's post-move edges did not converge to a green build
           within the fixup budget. Review $.context.build_issues /
           $.context.build_summary and decide: fix by hand, revert the move, or
-          accept as-is.
+          acknowledge the unresolved result. Acknowledgement is not verification.
         transitions:
           review_scope:
-            target: done
+            target: unresolved
             actor: human
             inputSchema:
               type: object
@@ -285,5 +303,10 @@ workflows:
             output:
               result: "$.arguments.result"
 
+      unresolved:
+        terminal: true
+        outcome: failure
+
       done:
         terminal: true
+        outcome: success

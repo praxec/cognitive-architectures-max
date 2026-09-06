@@ -48,5 +48,10 @@ jobs:
         if: steps.cache-praxec.outputs.cache-hit != 'true'
         run: cargo install --git https://github.com/praxec/praxec --tag ${{ env.PRAXEC_VERSION }} --locked praxec
 
+      - name: Refactor gate regressions
+        run: |
+          python3 -m pip install PyYAML==6.0.3
+          python3 -m unittest discover -s tests -v
+
       - name: praxec check
         run: praxec check --config "$CHECK_CONFIG"
